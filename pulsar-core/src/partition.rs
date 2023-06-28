@@ -1,59 +1,56 @@
 use std::collections::HashMap;
 use valu3::prelude::*;
 
-enum Error {
+pub enum Error {
     SortKeyNotFound,
+    PartitionAlreadyExists,
 }
 
-struct Partition<'a> {
-    map: HashMap<&'a str, Value>,
-    list: Vec<&'a str>,
-    capacity: usize,
-}
-
-enum Filter<'a> {
+pub enum Filter<'a> {
     StartWith(&'a str),
     EndWith(&'a str),
     StartAndEndWith(&'a str, &'a str),
     None,
 }
 
-enum Order {
+pub enum Order {
     Asc,
     Desc,
 }
 
-enum StartAfter<'a> {
+pub enum StartAfter<'a> {
     Key(&'a str),
     None,
 }
 
-struct ListProps<'a> {
+pub struct ListProps<'a> {
     start_after_key: StartAfter<'a>,
     filter: Filter<'a>,
     order: Order,
+    limit: usize,
 }
 
 impl<'a> ListProps<'a> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             start_after_key: StartAfter::None,
             filter: Filter::None,
             order: Order::Asc,
+            limit: 10,
         }
     }
 
-    fn start_after_key(mut self, key: &'a str) -> Self {
+    pub fn start_after_key(mut self, key: &'a str) -> Self {
         self.start_after_key = StartAfter::Key(key);
         self
     }
 
-    fn filter(mut self, filter: Filter<'a>) -> Self {
+    pub fn filter(mut self, filter: Filter<'a>) -> Self {
         self.filter = filter;
         self
     }
 
-    fn order(mut self, order: Order) -> Self {
+    pub fn order(mut self, order: Order) -> Self {
         self.order = order;
         self
     }
@@ -65,6 +62,7 @@ impl<'a> From<Filter<'a>> for ListProps<'a> {
             start_after_key: StartAfter::None,
             filter,
             order: Order::Asc,
+            limit: 10,
         }
     }
 }
@@ -75,6 +73,7 @@ impl<'a> From<Order> for ListProps<'a> {
             start_after_key: StartAfter::None,
             filter: Filter::None,
             order,
+            limit: 10,
         }
     }
 }
@@ -85,12 +84,59 @@ impl<'a> From<StartAfter<'a>> for ListProps<'a> {
             start_after_key,
             filter: Filter::None,
             order: Order::Asc,
+            limit: 10,
         }
     }
 }
 
+macro_rules! filter_and_push {
+    ($filter:expr, $map:expr, $list:expr, $count:expr, $limit:expr, $filter_fn:expr, $skip_iter:expr) => {
+        for k in $skip_iter {
+            let filtered = match $filter {
+                Filter::StartWith(key) => {
+                    if k.starts_with(key) {
+                        Some((*k, $map.get(k).unwrap()))
+                    } else {
+                        None
+                    }
+                }
+                Filter::EndWith(key) => {
+                    if k.ends_with(key) {
+                        Some((*k, $map.get(k).unwrap()))
+                    } else {
+                        None
+                    }
+                }
+                Filter::StartAndEndWith(start_key, end_key) => {
+                    if k.starts_with(start_key) && k.ends_with(end_key) {
+                        Some((*k, $map.get(k).unwrap()))
+                    } else {
+                        None
+                    }
+                }
+                Filter::None => Some((*k, $map.get(k).unwrap())),
+            };
+
+            if let Some(item) = filtered {
+                $list.push(item);
+                $count += 1;
+                if $count == $limit {
+                    break;
+                }
+            }
+        }
+    };
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Partition<'a> {
+    map: HashMap<&'a str, Value>,
+    list: Vec<&'a str>,
+    capacity: usize,
+}
+
 impl<'a> Partition<'a> {
-    fn new(capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
             map: HashMap::new(),
             list: Vec::new(),
@@ -98,7 +144,7 @@ impl<'a> Partition<'a> {
         }
     }
 
-    fn insert(&mut self, key: &'a str, value: Value) {
+    pub fn insert(&mut self, key: &'a str, value: Value) {
         if self.map.len() == self.capacity {
             let first_key = self.list.remove(0);
             self.map.remove(first_key);
@@ -114,39 +160,39 @@ impl<'a> Partition<'a> {
         self.map.insert(key, value);
     }
 
-    fn get(&self, key: &str) -> Option<&Value> {
+    pub fn get(&self, key: &str) -> Option<&Value> {
         self.map.get(key)
     }
 
-    fn remove(&mut self, key: &str) {
+    pub fn remove(&mut self, key: &str) {
         let position = self.list.iter().position(|&k| k == key).unwrap();
 
         self.list.remove(position);
         self.map.remove(key);
     }
 
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.map.clear();
         self.list.clear();
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.map.len()
     }
 
-    fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         self.capacity
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
 
-    fn contains_key(&self, key: &str) -> bool {
+    pub fn contains_key(&self, key: &str) -> bool {
         self.map.contains_key(key)
     }
 
-    fn list<T>(&self, props: T) -> Result<Vec<(&str, &Value)>, Error>
+    pub fn list<T>(&self, props: T) -> Result<Vec<(&str, &Value)>, Error>
     where
         T: Into<ListProps<'a>>,
     {
@@ -163,36 +209,18 @@ impl<'a> Partition<'a> {
             StartAfter::None => 0,
         };
 
-        let filter_fn = |k: &&'a str| -> Option<(&str, &Value)> {
-            match list_props.filter {
-                Filter::StartWith(key) => {
-                    if k.starts_with(key) {
-                        Some((*k, self.map.get(k).unwrap()))
-                    } else {
-                        None
-                    }
-                }
-                Filter::EndWith(key) => {
-                    if k.ends_with(key) {
-                        Some((*k, self.map.get(k).unwrap()))
-                    } else {
-                        None
-                    }
-                }
-                Filter::StartAndEndWith(start_key, end_key) => {
-                    if k.starts_with(start_key) && k.ends_with(end_key) {
-                        Some((*k, self.map.get(k).unwrap()))
-                    } else {
-                        None
-                    }
-                }
-                Filter::None => Some((*k, self.map.get(k).unwrap())),
-            }
-        };
+        let mut list = Vec::new();
+        let mut count = 0;
 
-        let list = match list_props.order {
-            Order::Asc => self.list.iter().skip(position).filter_map(filter_fn).collect(),
-            Order::Desc => self.list.iter().rev().skip(position).filter_map(filter_fn).collect(),
+        match list_props.order {
+            Order::Asc => {
+                let skip_iter = self.list.iter().skip(position);
+                filter_and_push!(list_props.filter, self.map, list, count, list_props.limit, filter_fn, skip_iter);
+            }
+            Order::Desc => {
+                let skip_iter = self.list.iter().rev().skip(position);
+                filter_and_push!(list_props.filter, self.map, list, count, list_props.limit, filter_fn, skip_iter);
+            }
         };
 
         Ok(list)
@@ -204,7 +232,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_partition_insert() {
+    pub fn test_partition_insert() {
         let mut partition = Partition::new(2);
         partition.insert("key1", Value::from(1));
         partition.insert("key2", Value::from(2));
@@ -215,7 +243,7 @@ mod test {
     }
 
     #[test]
-    fn test_partition_remove() {
+    pub fn test_partition_remove() {
         let mut partition = Partition::new(2);
         partition.insert("key1", Value::from(1));
         partition.insert("key2", Value::from(2));
@@ -227,7 +255,7 @@ mod test {
     }
 
     #[test]
-    fn test_partition_clear() {
+    pub fn test_partition_clear() {
         let mut partition = Partition::new(2);
         partition.insert("key1", Value::from(1));
         partition.insert("key2", Value::from(2));
@@ -236,7 +264,7 @@ mod test {
     }
 
     #[test]
-    fn test_partition_list_asc() {
+    pub fn test_partition_list_asc() {
         let mut partition = Partition::new(5);
         partition.insert("key2", Value::from(2));
         partition.insert("key1", Value::from(1));
@@ -260,7 +288,7 @@ mod test {
     }
 
     #[test]
-    fn test_partition_list_desc() {
+    pub fn test_partition_list_desc() {
         let mut partition = Partition::new(5);
         partition.insert("key5", Value::from(5));
         partition.insert("key1", Value::from(1));
@@ -272,6 +300,7 @@ mod test {
             order: Order::Desc,
             filter: Filter::None,
             start_after_key: StartAfter::Key("key3"),
+            limit: 10,
         });
 
         assert_eq!(result_res.is_ok(), true);
@@ -287,7 +316,7 @@ mod test {
     }
 
     #[test]
-    fn test_filter_start_with() {
+    pub fn test_filter_start_with() {
         let mut partition = Partition::new(10);
 
         partition.insert("postmodern", Value::from(8));
@@ -317,7 +346,7 @@ mod test {
     }
 
     #[test]
-    fn test_filter_ends_with() {
+    pub fn test_filter_ends_with() {
         let mut partition = Partition::new(10);
 
         partition.insert("postmodern", Value::from(8));
