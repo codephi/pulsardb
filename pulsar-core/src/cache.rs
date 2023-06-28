@@ -2,9 +2,6 @@ use std::collections::HashMap;
 use valu3::prelude::*;
 
 enum Error {
-    NonParsebleMsg(String),
-    NonParseble,
-    NotNumber,
     SortKeyNotFound,
 }
 
@@ -71,7 +68,7 @@ impl<'a> Partition<'a> {
         self.map.contains_key(key)
     }
 
-    fn iter_from_asc(&self, start_after_key: &str) -> Result<Vec<(&str, &Value)>, Error> {
+    fn list_asc(&self, start_after_key: &str) -> Result<Vec<(&str, &Value)>, Error> {
         if !self.map.contains_key(start_after_key) {
             return Err(Error::SortKeyNotFound);
         }
@@ -91,7 +88,7 @@ impl<'a> Partition<'a> {
         Ok(result)
     }
 
-    fn iter_from_desc(&self, start_after_key: &str) -> Result<Vec<(&str, &Value)>, Error> {
+    fn list_desc(&self, start_after_key: &str) -> Result<Vec<(&str, &Value)>, Error> {
         if !self.map.contains_key(start_after_key) {
             return Err(Error::SortKeyNotFound);
         }
@@ -107,6 +104,76 @@ impl<'a> Partition<'a> {
             .rev()
             .skip(position)
             .map(|&k| (k, self.map.get(k).unwrap()))
+            .collect();
+
+        Ok(result)
+    }
+
+    fn filter_starts_with_and_start_after(
+        &self,
+        start_after_key: Option<&str>,
+        key_start_with: &str,
+    ) -> Result<Vec<(&str, &Value)>, Error> {
+        let position = match start_after_key {
+            Some(start_after_key) => {
+                if !self.map.contains_key(start_after_key) {
+                    return Err(Error::SortKeyNotFound);
+                }
+
+                match self.list.iter().position(|&k| k == start_after_key) {
+                    Some(position) => position + 1,
+                    None => return Err(Error::SortKeyNotFound),
+                }
+            }
+            None => 0,
+        };
+
+        let result = self
+            .list
+            .iter()
+            .skip(position)
+            .filter_map(|&k| {
+                if k.starts_with(key_start_with) {
+                    Some((k, self.map.get(k).unwrap()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(result)
+    }
+
+    fn filter_ends_with_and_start_after(
+        &self,
+        start_after_key: Option<&str>,
+        key_ends_with: &str,
+    ) -> Result<Vec<(&str, &Value)>, Error> {
+        let position = match start_after_key {
+            Some(start_after_key) => {
+                if !self.map.contains_key(start_after_key) {
+                    return Err(Error::SortKeyNotFound);
+                }
+
+                match self.list.iter().position(|&k| k == start_after_key) {
+                    Some(position) => position + 1,
+                    None => return Err(Error::SortKeyNotFound),
+                }
+            }
+            None => 0,
+        };
+
+        let result = self
+            .list
+            .iter()
+            .skip(position)
+            .filter_map(|&k| {
+                if k.ends_with(key_ends_with) {
+                    Some((k, self.map.get(k).unwrap()))
+                } else {
+                    None
+                }
+            })
             .collect();
 
         Ok(result)
@@ -150,7 +217,7 @@ mod test {
     }
 
     #[test]
-    fn test_partition_iter_from_asc() {
+    fn test_partition_list_asc() {
         let mut partition = Partition::new(5);
         partition.insert("key1", Value::from(1));
         partition.insert("key2", Value::from(2));
@@ -158,11 +225,11 @@ mod test {
         partition.insert("key4", Value::from(4));
         partition.insert("key5", Value::from(5));
 
-        let iter_result = partition.iter_from_asc("key2");
+        let result_res = partition.list_asc("key2");
 
-        assert_eq!(iter_result.is_ok(), true);
+        assert_eq!(result_res.is_ok(), true);
 
-        let result = match iter_result {
+        let result = match result_res {
             Ok(result) => result,
             Err(_) => panic!("Error"),
         };
@@ -174,7 +241,7 @@ mod test {
     }
 
     #[test]
-    fn test_partition_iter_from_desc() {
+    fn test_partition_list_desc() {
         let mut partition = Partition::new(5);
         partition.insert("key1", Value::from(1));
         partition.insert("key2", Value::from(2));
@@ -182,11 +249,11 @@ mod test {
         partition.insert("key4", Value::from(4));
         partition.insert("key5", Value::from(5));
 
-        let iter_result = partition.iter_from_desc("key3");
+        let result_res = partition.list_desc("key3");
 
-        assert_eq!(iter_result.is_ok(), true);
+        assert_eq!(result_res.is_ok(), true);
 
-        let result = match iter_result {
+        let result = match result_res {
             Ok(result) => result,
             Err(_) => panic!("Error"),
         };
@@ -197,7 +264,7 @@ mod test {
     }
 
     #[test]
-    fn test_partition_iter_from_asc_alphabetic() {
+    fn test_partition_list_asc_alphabetic() {
         let mut partition = Partition::new(5);
         partition.insert("key2", Value::from(2));
         partition.insert("key5", Value::from(5));
@@ -205,11 +272,11 @@ mod test {
         partition.insert("key3", Value::from(3));
         partition.insert("key4", Value::from(4));
 
-        let iter_result = partition.iter_from_asc("key1");
+        let result_res = partition.list_asc("key1");
 
-        assert_eq!(iter_result.is_ok(), true);
+        assert_eq!(result_res.is_ok(), true);
 
-        let result = match iter_result {
+        let result = match result_res {
             Ok(result) => result,
             Err(_) => panic!("Error"),
         };
@@ -222,7 +289,7 @@ mod test {
     }
 
     #[test]
-    fn test_partition_iter_from_desc_alphabetic() {
+    fn test_partition_list_desc_alphabetic() {
         let mut partition = Partition::new(5);
         partition.insert("key4", Value::from(4));
         partition.insert("key1", Value::from(1));
@@ -230,11 +297,11 @@ mod test {
         partition.insert("key5", Value::from(5));
         partition.insert("key3", Value::from(3));
 
-        let iter_result = partition.iter_from_desc("key3");
+        let result_res = partition.list_desc("key3");
 
-        assert_eq!(iter_result.is_ok(), true);
+        assert_eq!(result_res.is_ok(), true);
 
-        let result = match iter_result {
+        let result = match result_res {
             Ok(result) => result,
             Err(_) => panic!("Error"),
         };
@@ -242,5 +309,64 @@ mod test {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], ("key2", &Value::from(2)));
         assert_eq!(result[1], ("key1", &Value::from(1)));
+    }
+
+    #[test]
+    fn test_filter_start_with() {
+        let mut partition = Partition::new(10);
+
+        partition.insert("postmodern", Value::from(8));
+        partition.insert("postpone", Value::from(6));
+        partition.insert("precept", Value::from(2));
+        partition.insert("postmortem", Value::from(9));
+        partition.insert("precaution", Value::from(3));
+        partition.insert("precede", Value::from(1));
+        partition.insert("precognition", Value::from(5));
+        partition.insert("postmark", Value::from(10));
+        partition.insert("postgraduate", Value::from(7));
+        partition.insert("preconceive", Value::from(4));
+
+        let result_res = partition.filter_starts_with_and_start_after(None, "postm");
+
+        assert_eq!(result_res.is_ok(), true);
+
+        let result = match result_res {
+            Ok(result) => result,
+            Err(_) => panic!("Error"),
+        };
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], ("postmark", &Value::from(10)));
+        assert_eq!(result[1], ("postmodern", &Value::from(8)));
+        assert_eq!(result[2], ("postmortem", &Value::from(9)));
+    }
+
+    #[test]
+    fn test_filter_ends_with() {
+        let mut partition = Partition::new(10);
+
+        partition.insert("postmodern", Value::from(8));
+        partition.insert("postpone", Value::from(6));
+        partition.insert("precept", Value::from(2));
+        partition.insert("postmortem", Value::from(9));
+        partition.insert("precaution", Value::from(3));
+        partition.insert("precede", Value::from(1));
+        partition.insert("precognition", Value::from(5));
+        partition.insert("postmark", Value::from(10));
+        partition.insert("postgraduate", Value::from(7));
+        partition.insert("preconceive", Value::from(4));
+
+        let result_res = partition.filter_ends_with_and_start_after(None, "tion");
+
+        assert_eq!(result_res.is_ok(), true);
+
+        let result = match result_res {
+            Ok(result) => result,
+            Err(_) => panic!("Error"),
+        };
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], ("precaution", &Value::from(3)));
+        assert_eq!(result[1], ("precognition", &Value::from(5)));
     }
 }
