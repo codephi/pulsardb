@@ -11,6 +11,84 @@ struct Partition<'a> {
     capacity: usize,
 }
 
+enum Filter<'a> {
+    StartWith(&'a str),
+    EndWith(&'a str),
+    StartAndEndWith(&'a str, &'a str),
+    None,
+}
+
+enum Order {
+    Asc,
+    Desc,
+}
+
+enum StartAfter<'a> {
+    Key(&'a str),
+    None,
+}
+
+struct ListProps<'a> {
+    start_after_key: StartAfter<'a>,
+    filter: Filter<'a>,
+    order: Order,
+}
+
+impl<'a> ListProps<'a> {
+    fn new() -> Self {
+        Self {
+            start_after_key: StartAfter::None,
+            filter: Filter::None,
+            order: Order::Asc,
+        }
+    }
+
+    fn start_after_key(mut self, key: &'a str) -> Self {
+        self.start_after_key = StartAfter::Key(key);
+        self
+    }
+
+    fn filter(mut self, filter: Filter<'a>) -> Self {
+        self.filter = filter;
+        self
+    }
+
+    fn order(mut self, order: Order) -> Self {
+        self.order = order;
+        self
+    }
+}
+
+impl<'a> From<Filter<'a>> for ListProps<'a> {
+    fn from(filter: Filter<'a>) -> Self {
+        Self {
+            start_after_key: StartAfter::None,
+            filter,
+            order: Order::Asc,
+        }
+    }
+}
+
+impl<'a> From<Order> for ListProps<'a> {
+    fn from(order: Order) -> Self {
+        Self {
+            start_after_key: StartAfter::None,
+            filter: Filter::None,
+            order,
+        }
+    }
+}
+
+impl<'a> From<StartAfter<'a>> for ListProps<'a> {
+    fn from(start_after_key: StartAfter<'a>) -> Self {
+        Self {
+            start_after_key,
+            filter: Filter::None,
+            order: Order::Asc,
+        }
+    }
+}
+
 impl<'a> Partition<'a> {
     fn new(capacity: usize) -> Self {
         Self {
@@ -68,115 +146,84 @@ impl<'a> Partition<'a> {
         self.map.contains_key(key)
     }
 
-    fn list_asc(&self, start_after_key: &str) -> Result<Vec<(&str, &Value)>, Error> {
-        if !self.map.contains_key(start_after_key) {
-            return Err(Error::SortKeyNotFound);
-        }
+    fn list<T>(&self, props: T) -> Result<Vec<(&str, &Value)>, Error>
+    where
+        T: Into<ListProps<'a>>,
+    {
+        let list_props = props.into();
 
-        let position = match self.list.iter().position(|&k| k == start_after_key) {
-            Some(position) => position + 1,
-            None => return Err(Error::SortKeyNotFound),
-        };
-
-        let result = self
-            .list
-            .iter()
-            .skip(position)
-            .map(|&k| (k, self.map.get(k).unwrap()))
-            .collect();
-
-        Ok(result)
-    }
-
-    fn list_desc(&self, start_after_key: &str) -> Result<Vec<(&str, &Value)>, Error> {
-        if !self.map.contains_key(start_after_key) {
-            return Err(Error::SortKeyNotFound);
-        }
-
-        let position = match self.list.iter().position(|&k| k == start_after_key) {
-            Some(position) => position + 1,
-            None => return Err(Error::SortKeyNotFound),
-        };
-
-        let result = self
-            .list
-            .iter()
-            .rev()
-            .skip(position)
-            .map(|&k| (k, self.map.get(k).unwrap()))
-            .collect();
-
-        Ok(result)
-    }
-
-    fn filter_starts_with_and_start_after(
-        &self,
-        start_after_key: Option<&str>,
-        key_start_with: &str,
-    ) -> Result<Vec<(&str, &Value)>, Error> {
-        let position = match start_after_key {
-            Some(start_after_key) => {
-                if !self.map.contains_key(start_after_key) {
-                    return Err(Error::SortKeyNotFound);
-                }
-
-                match self.list.iter().position(|&k| k == start_after_key) {
-                    Some(position) => position + 1,
-                    None => return Err(Error::SortKeyNotFound),
-                }
+        let position = match list_props.start_after_key {
+            StartAfter::Key(key) => {
+                self.list
+                    .iter()
+                    .position(|&k| k == key)
+                    .ok_or(Error::SortKeyNotFound)?
+                    + 1
             }
-            None => 0,
+            StartAfter::None => 0,
         };
 
-        let result = self
-            .list
-            .iter()
-            .skip(position)
-            .filter_map(|&k| {
-                if k.starts_with(key_start_with) {
-                    Some((k, self.map.get(k).unwrap()))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Ok(result)
-    }
-
-    fn filter_ends_with_and_start_after(
-        &self,
-        start_after_key: Option<&str>,
-        key_ends_with: &str,
-    ) -> Result<Vec<(&str, &Value)>, Error> {
-        let position = match start_after_key {
-            Some(start_after_key) => {
-                if !self.map.contains_key(start_after_key) {
-                    return Err(Error::SortKeyNotFound);
-                }
-
-                match self.list.iter().position(|&k| k == start_after_key) {
-                    Some(position) => position + 1,
-                    None => return Err(Error::SortKeyNotFound),
-                }
-            }
-            None => 0,
-        };
-
-        let result = self
-            .list
-            .iter()
-            .skip(position)
-            .filter_map(|&k| {
-                if k.ends_with(key_ends_with) {
-                    Some((k, self.map.get(k).unwrap()))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Ok(result)
+        match list_props.order {
+            Order::Asc => Ok(self
+                .list
+                .iter()
+                .skip(position)
+                .filter_map(|&k| match list_props.filter {
+                    Filter::StartWith(key) => {
+                        if k.starts_with(key) {
+                            Some((k, self.map.get(k).unwrap()))
+                        } else {
+                            None
+                        }
+                    }
+                    Filter::EndWith(key) => {
+                        if k.ends_with(key) {
+                            Some((k, self.map.get(k).unwrap()))
+                        } else {
+                            None
+                        }
+                    }
+                    Filter::StartAndEndWith(start_key, end_key) => {
+                        if k.starts_with(start_key) && k.ends_with(end_key) {
+                            Some((k, self.map.get(k).unwrap()))
+                        } else {
+                            None
+                        }
+                    }
+                    Filter::None => Some((k, self.map.get(k).unwrap())),
+                })
+                .collect()),
+            Order::Desc => Ok(self
+                .list
+                .iter()
+                .rev()
+                .skip(position)
+                .filter_map(|&k| match list_props.filter {
+                    Filter::StartWith(key) => {
+                        if k.starts_with(key) {
+                            Some((k, self.map.get(k).unwrap()))
+                        } else {
+                            None
+                        }
+                    }
+                    Filter::EndWith(key) => {
+                        if k.ends_with(key) {
+                            Some((k, self.map.get(k).unwrap()))
+                        } else {
+                            None
+                        }
+                    }
+                    Filter::StartAndEndWith(start_key, end_key) => {
+                        if k.starts_with(start_key) && k.ends_with(end_key) {
+                            Some((k, self.map.get(k).unwrap()))
+                        } else {
+                            None
+                        }
+                    }
+                    Filter::None => Some((k, self.map.get(k).unwrap())),
+                })
+                .collect()),
+        }
     }
 }
 
@@ -219,13 +266,13 @@ mod test {
     #[test]
     fn test_partition_list_asc() {
         let mut partition = Partition::new(5);
-        partition.insert("key1", Value::from(1));
         partition.insert("key2", Value::from(2));
-        partition.insert("key3", Value::from(3));
-        partition.insert("key4", Value::from(4));
+        partition.insert("key1", Value::from(1));
         partition.insert("key5", Value::from(5));
+        partition.insert("key4", Value::from(4));
+        partition.insert("key3", Value::from(3));
 
-        let result_res = partition.list_asc("key2");
+        let result_res = partition.list(StartAfter::Key("key2"));
 
         assert_eq!(result_res.is_ok(), true);
 
@@ -243,61 +290,17 @@ mod test {
     #[test]
     fn test_partition_list_desc() {
         let mut partition = Partition::new(5);
-        partition.insert("key1", Value::from(1));
-        partition.insert("key2", Value::from(2));
-        partition.insert("key3", Value::from(3));
-        partition.insert("key4", Value::from(4));
-        partition.insert("key5", Value::from(5));
-
-        let result_res = partition.list_desc("key3");
-
-        assert_eq!(result_res.is_ok(), true);
-
-        let result = match result_res {
-            Ok(result) => result,
-            Err(_) => panic!("Error"),
-        };
-
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0], ("key2", &Value::from(2)));
-        assert_eq!(result[1], ("key1", &Value::from(1)));
-    }
-
-    #[test]
-    fn test_partition_list_asc_alphabetic() {
-        let mut partition = Partition::new(5);
-        partition.insert("key2", Value::from(2));
         partition.insert("key5", Value::from(5));
         partition.insert("key1", Value::from(1));
         partition.insert("key3", Value::from(3));
         partition.insert("key4", Value::from(4));
-
-        let result_res = partition.list_asc("key1");
-
-        assert_eq!(result_res.is_ok(), true);
-
-        let result = match result_res {
-            Ok(result) => result,
-            Err(_) => panic!("Error"),
-        };
-
-        assert_eq!(result.len(), 4);
-        assert_eq!(result[0], ("key2", &Value::from(2)));
-        assert_eq!(result[1], ("key3", &Value::from(3)));
-        assert_eq!(result[2], ("key4", &Value::from(4)));
-        assert_eq!(result[3], ("key5", &Value::from(5)));
-    }
-
-    #[test]
-    fn test_partition_list_desc_alphabetic() {
-        let mut partition = Partition::new(5);
-        partition.insert("key4", Value::from(4));
-        partition.insert("key1", Value::from(1));
         partition.insert("key2", Value::from(2));
-        partition.insert("key5", Value::from(5));
-        partition.insert("key3", Value::from(3));
 
-        let result_res = partition.list_desc("key3");
+        let result_res = partition.list(ListProps {
+            order: Order::Desc,
+            filter: Filter::None,
+            start_after_key: StartAfter::Key("key3"),
+        });
 
         assert_eq!(result_res.is_ok(), true);
 
@@ -326,7 +329,7 @@ mod test {
         partition.insert("postgraduate", Value::from(7));
         partition.insert("preconceive", Value::from(4));
 
-        let result_res = partition.filter_starts_with_and_start_after(None, "postm");
+        let result_res = partition.list(Filter::StartWith("postm"));
 
         assert_eq!(result_res.is_ok(), true);
 
@@ -356,7 +359,7 @@ mod test {
         partition.insert("postgraduate", Value::from(7));
         partition.insert("preconceive", Value::from(4));
 
-        let result_res = partition.filter_ends_with_and_start_after(None, "tion");
+        let result_res = partition.list(Filter::EndWith("tion"));
 
         assert_eq!(result_res.is_ok(), true);
 
