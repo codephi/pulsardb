@@ -163,67 +163,39 @@ impl<'a> Partition<'a> {
             StartAfter::None => 0,
         };
 
-        match list_props.order {
-            Order::Asc => Ok(self
-                .list
-                .iter()
-                .skip(position)
-                .filter_map(|&k| match list_props.filter {
-                    Filter::StartWith(key) => {
-                        if k.starts_with(key) {
-                            Some((k, self.map.get(k).unwrap()))
-                        } else {
-                            None
-                        }
+        let filter_fn = |k: &&'a str| -> Option<(&str, &Value)> {
+            match list_props.filter {
+                Filter::StartWith(key) => {
+                    if k.starts_with(key) {
+                        Some((*k, self.map.get(k).unwrap()))
+                    } else {
+                        None
                     }
-                    Filter::EndWith(key) => {
-                        if k.ends_with(key) {
-                            Some((k, self.map.get(k).unwrap()))
-                        } else {
-                            None
-                        }
+                }
+                Filter::EndWith(key) => {
+                    if k.ends_with(key) {
+                        Some((*k, self.map.get(k).unwrap()))
+                    } else {
+                        None
                     }
-                    Filter::StartAndEndWith(start_key, end_key) => {
-                        if k.starts_with(start_key) && k.ends_with(end_key) {
-                            Some((k, self.map.get(k).unwrap()))
-                        } else {
-                            None
-                        }
+                }
+                Filter::StartAndEndWith(start_key, end_key) => {
+                    if k.starts_with(start_key) && k.ends_with(end_key) {
+                        Some((*k, self.map.get(k).unwrap()))
+                    } else {
+                        None
                     }
-                    Filter::None => Some((k, self.map.get(k).unwrap())),
-                })
-                .collect()),
-            Order::Desc => Ok(self
-                .list
-                .iter()
-                .rev()
-                .skip(position)
-                .filter_map(|&k| match list_props.filter {
-                    Filter::StartWith(key) => {
-                        if k.starts_with(key) {
-                            Some((k, self.map.get(k).unwrap()))
-                        } else {
-                            None
-                        }
-                    }
-                    Filter::EndWith(key) => {
-                        if k.ends_with(key) {
-                            Some((k, self.map.get(k).unwrap()))
-                        } else {
-                            None
-                        }
-                    }
-                    Filter::StartAndEndWith(start_key, end_key) => {
-                        if k.starts_with(start_key) && k.ends_with(end_key) {
-                            Some((k, self.map.get(k).unwrap()))
-                        } else {
-                            None
-                        }
-                    }
-                    Filter::None => Some((k, self.map.get(k).unwrap())),
-                })
-                .collect()),
-        }
+                }
+                Filter::None => Some((*k, self.map.get(k).unwrap())),
+            }
+        };
+
+        let list = match list_props.order {
+            Order::Asc => self.list.iter().skip(position).filter_map(filter_fn).collect(),
+            Order::Desc => self.list.iter().rev().skip(position).filter_map(filter_fn).collect(),
+        };
+
+        Ok(list)
     }
 }
 
