@@ -5,7 +5,6 @@ use super::{PartitionTrait, Error, ListProps, StartAfter, Order, table::Table, F
 
 // Create Database struct
 pub struct Database<'a> {
-    pub name: String,
     pub map: HashMap<&'a str, Table<'a>>,
     pub list: Vec<&'a str>,
     pub capacity: usize,
@@ -14,9 +13,8 @@ pub struct Database<'a> {
 }
 
 impl<'a> Database<'a> {
-    pub fn new(name: String) -> Self {
+    pub fn new() -> Self {
         Self {
-            name,
             map: HashMap::new(),
             list: Vec::new(),
             capacity: 0,
