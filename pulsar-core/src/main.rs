@@ -1,7 +1,6 @@
 mod partition;
 mod table;
-
-use partition::Partition;
+mod database;
 
 fn main() {
     println!("Hello, world!");
