@@ -1,9 +1,7 @@
 use std::collections::HashMap;
+use crate::filter_and_push;
 
-use crate::{
-    partition::{Error, PartitionTrait, StartAfter, Order, Filter},
-    table::Table, filter_and_push,
-};
+use super::{PartitionTrait, Error, ListProps, StartAfter, Order, table::Table, Filter};
 
 // Create Database struct
 pub struct Database<'a> {
@@ -101,7 +99,7 @@ impl<'a> PartitionTrait<'a> for Database<'a> {
 
     fn list<T>(&self, props: T) -> Result<Vec<(&str, &Self::Output)>, Error>
     where
-        T: Into<crate::partition::ListProps<'a>>,
+        T: Into<ListProps<'a>>,
     {
         let props = props.into();
 

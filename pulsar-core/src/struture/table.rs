@@ -1,9 +1,7 @@
-use crate::{
-    filter_and_push,
-    partition::{Error, Filter, ListProps, Order, Partition, PartitionTrait, StartAfter},
-};
 use std::collections::HashMap;
-use valu3::value::Value;
+use crate::filter_and_push;
+
+use super::{PartitionTrait, Error, ListProps, StartAfter, Order, partition::Partition, Filter};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Table<'a> {
