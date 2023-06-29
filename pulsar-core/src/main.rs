@@ -1,7 +1,6 @@
-mod struture;
-
-use struture::{Table, Partition, Value};
+mod cache;
+mod settings;
 
 fn main() {
-    println!("Hello, world!");
+    
 }
