@@ -218,7 +218,10 @@ impl<'a> Partition<'a> {
         }
     }
 
-    pub fn insert(&mut self, key: &'a str, value: Item<'a>) {
+    pub fn insert<V>(&mut self, key: &'a str, value: V)
+    where
+        V: Into<Item<'a>>,
+    {
         if self.map.len() == self.capacity {
             let first_key = self.list.remove(0);
             self.map.remove(first_key);
@@ -231,7 +234,7 @@ impl<'a> Partition<'a> {
             .position(|&k| k > key)
             .unwrap_or(self.list.len());
         self.list.insert(position, key);
-        self.map.insert(key, value);
+        self.map.insert(key, value.into());
     }
 
     pub fn get(&self, key: &str) -> Option<&Item<'a>> {
@@ -289,11 +292,27 @@ impl<'a> Partition<'a> {
         match list_props.order {
             Order::Asc => {
                 let skip_iter = self.list.iter().skip(position);
-                filter_and_push!(list_props.filter, self.map, list, count, list_props.limit, filter_fn, skip_iter);
+                filter_and_push!(
+                    list_props.filter,
+                    self.map,
+                    list,
+                    count,
+                    list_props.limit,
+                    filter_fn,
+                    skip_iter
+                );
             }
             Order::Desc => {
                 let skip_iter = self.list.iter().rev().skip(position);
-                filter_and_push!(list_props.filter, self.map, list, count, list_props.limit, filter_fn, skip_iter);
+                filter_and_push!(
+                    list_props.filter,
+                    self.map,
+                    list,
+                    count,
+                    list_props.limit,
+                    filter_fn,
+                    skip_iter
+                );
             }
         };
 
@@ -449,7 +468,7 @@ mod test {
     }
 
     #[test]
-    fn test_partition_with_value(){
+    fn test_partition_with_value() {
         let mut partition = Partition::new(10);
         let mut partition_inner1 = Partition::new(3);
         let mut partition_inner2 = Partition::new(2);
