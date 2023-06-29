@@ -38,7 +38,7 @@ impl<'a> PartitionTrait<'a> for Table<'a> {
     where
         V: Into<Self::Output>,
     {
-        if self.map.len() == self.capacity {
+        if self.map.len() != 0 && self.map.len() == self.capacity {
             let first_key = self.list.remove(0);
             self.map.remove(first_key);
         }

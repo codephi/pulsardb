@@ -27,7 +27,7 @@ impl<'a> PartitionTrait<'a> for Partition<'a> {
     where
         V: Into<Value>,
     {
-        if self.map.len() == self.capacity {
+        if self.map.len() != 0 && self.map.len() == self.capacity {
             let first_key = self.list.remove(0);
             self.map.remove(first_key);
         }

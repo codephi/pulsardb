@@ -1,25 +1,25 @@
-use std::collections::HashMap;
 use crate::filter_and_push;
+use std::collections::HashMap;
 
-use super::{PartitionTrait, Error, ListProps, StartAfter, Order, table::Table, Filter};
+use super::{table::Table, Error, Filter, ListProps, Order, PartitionTrait, StartAfter};
 
 // Create Database struct
 pub struct Database<'a> {
-    pub map: HashMap<&'a str, Table<'a>>,
-    pub list: Vec<&'a str>,
-    pub capacity: usize,
-    pub table_capacity: usize,
-    pub partition_capacity: usize,
+    map: HashMap<&'a str, Table<'a>>,
+    list: Vec<&'a str>,
+    capacity: usize,
+    table_capacity: usize,
+    partition_capacity: usize,
 }
 
 impl<'a> Database<'a> {
-    pub fn new() -> Self {
+    pub fn new(capacity: usize, table_capacity: usize, partition_capacity: usize) -> Self {
         Self {
             map: HashMap::new(),
             list: Vec::new(),
-            capacity: 0,
-            table_capacity: 0,
-            partition_capacity: 0,
+            capacity: 10,
+            table_capacity: 10,
+            partition_capacity: 10,
         }
     }
 
@@ -28,7 +28,10 @@ impl<'a> Database<'a> {
             return Err(Error::TableAlreadyExists);
         }
 
-        self.insert(key, Table::new(self.table_capacity, self.partition_capacity));
+        self.insert(
+            key,
+            Table::new(self.table_capacity, self.partition_capacity),
+        );
         Ok(())
     }
 }
@@ -39,8 +42,8 @@ impl<'a> PartitionTrait<'a> for Database<'a> {
     fn insert<V>(&mut self, key: &'a str, value: V)
     where
         V: Into<Self::Output>,
-    {
-        if self.map.len() == self.capacity {
+    {   
+        if self.map.len() != 0 && self.map.len() == self.capacity {
             let first_key = self.list.remove(0);
             self.map.remove(first_key);
         }
@@ -143,5 +146,67 @@ impl<'a> PartitionTrait<'a> for Database<'a> {
         };
 
         Ok(list)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create() {
+        let mut db = Database::new(10, 5, 5);
+        assert!(db.create("table1").is_ok());
+        assert!(db.create("table2").is_ok());
+        assert_eq!(db.map.len(), 2);
+        assert!(db.create("table1").is_err());
+        assert_eq!(db.map.len(), 2);
+    }
+
+    #[test]
+    fn test_insert() {
+        let mut db = Database::new(10, 5, 5);
+        let table1 = Table::new(5, 5);
+        let table2 = Table::new(5, 5);
+        let table3 = Table::new(5, 5);
+
+        db.insert("table1", table1.clone());
+        db.insert("table2", table2.clone());
+        db.insert("table3", table3.clone());
+
+        assert_eq!(db.get("table1"), Some(&table1));
+        assert_eq!(db.get("table2"), Some(&table2));
+        assert_eq!(db.get("table3"), Some(&table3));
+    }
+
+    #[test]
+    fn test_insert_if_not_exists() {
+        let mut db = Database::new(10, 5, 5);
+        let table1 = Table::new(5, 5);
+        let table2 = Table::new(5, 5);
+
+        assert!(db.insert_if_not_exists("table1", table1.clone()).is_ok());
+        assert!(db.insert_if_not_exists("table2", table2.clone()).is_ok());
+        assert_eq!(db.map.len(), 2);
+        assert!(db.insert_if_not_exists("table1", table1.clone()).is_err());
+        assert_eq!(db.map.len(), 2);
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut db = Database::new(10, 5, 5);
+        let table1 = Table::new(5, 5);
+        let table2 = Table::new(5, 5);
+        let table3 = Table::new(5, 5);
+
+        db.insert("table1", table1.clone());
+        db.insert("table2", table2.clone());
+        db.insert("table3", table3.clone());
+
+        db.remove("table2");
+
+        assert_eq!(db.get("table1"), Some(&table1));
+        assert_eq!(db.get("table2"), None);
+        assert_eq!(db.get("table3"), Some(&table3));
     }
 }
