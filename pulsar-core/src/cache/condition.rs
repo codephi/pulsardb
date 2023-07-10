@@ -88,7 +88,7 @@ pub struct ConditionGroup {
     pub conditions: Vec<ConditionToken>,
 }
 
-pub enum Where {
+pub enum Clause {
     ConditionGroup(ConditionGroup),
     Condition(Condition),
 }
@@ -116,7 +116,7 @@ impl Display for Error {
     }
 }
 
-impl Where {
+impl Clause {
     pub fn condition<L, R>(operator: Operator, left: L, right: R) -> Self
     where
         L: Into<Value>,
@@ -131,10 +131,10 @@ impl Where {
 
     pub fn execute(&self, value: &Value) -> Result<bool, Error> {
         match self {
-            Where::ConditionGroup(condition_group) => {
+            Clause::ConditionGroup(condition_group) => {
                 Self::execute_condition_group(condition_group, value)
             }
-            Where::Condition(condition) => Self::execute_condition(condition.clone(), value),
+            Clause::Condition(condition) => Self::execute_condition(condition.clone(), value),
         }
     }
 
@@ -444,16 +444,16 @@ macro_rules! sql_string {
 
 #[cfg(test)]
 mod tests {
-    use super::{Condition, ConditionGroup, ConditionToken, LogicalOperator, Operator, Where};
+    use super::{Clause, Condition, ConditionGroup, ConditionToken, LogicalOperator, Operator};
     use valu3::prelude::*;
 
-    // Where: name = 'John'
+    // Clause: name = 'John'
     #[test]
     fn test_condition_equal() {
-        let where_token = Where::condition(Operator::Equal, "name", sql_string!("John"));
+        let clause = Clause::condition(Operator::Equal, "name", sql_string!("John"));
 
         let value = Value::from(vec![("name", "John")]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -461,13 +461,13 @@ mod tests {
         assert!(result)
     }
 
-    // Where: name <> 'John'
+    // Clause: name <> 'John'
     #[test]
     fn test_condition_not_equal() {
-        let where_token = Where::condition(Operator::NotEqual, "name", sql_string!("John"));
+        let clause = Clause::condition(Operator::NotEqual, "name", sql_string!("John"));
 
         let value = Value::from(vec![("name", "John")]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -475,13 +475,13 @@ mod tests {
         assert!(!result);
     }
 
-    // Where: age < 18
+    // Clause: age < 18
     #[test]
     fn test_condition_greater_than() {
-        let where_token = Where::condition(Operator::GreaterThan, "age", 18);
+        let clause = Clause::condition(Operator::GreaterThan, "age", 18);
 
         let value = Value::from(vec![("age", 19)]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -489,13 +489,13 @@ mod tests {
         assert!(result);
     }
 
-    // Where: age >= 18
+    // Clause: age >= 18
     #[test]
     fn test_condition_greater_than_or_equal() {
-        let where_token = Where::condition(Operator::GreaterThanOrEqual, "age", 18);
+        let clause = Clause::condition(Operator::GreaterThanOrEqual, "age", 18);
 
         let value = Value::from(vec![("age", 18)]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -503,13 +503,13 @@ mod tests {
         assert!(result);
     }
 
-    // Where: age < 18
+    // Clause: age < 18
     #[test]
     fn test_condition_less_than() {
-        let where_token = Where::condition(Operator::LessThan, "age", 18);
+        let clause = Clause::condition(Operator::LessThan, "age", 18);
 
         let value = Value::from(vec![("age", 17)]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -517,13 +517,13 @@ mod tests {
         assert!(result);
     }
 
-    // Where: age <= 18
+    // Clause: age <= 18
     #[test]
     fn test_condition_less_than_or_equal() {
-        let where_token = Where::condition(Operator::LessThanOrEqual, "age", 18);
+        let clause = Clause::condition(Operator::LessThanOrEqual, "age", 18);
 
         let value = Value::from(vec![("age", 18)]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -531,13 +531,13 @@ mod tests {
         assert!(result);
     }
 
-    // Where: name LIKE 'J%'
+    // Clause: name LIKE 'J%'
     #[test]
     fn test_condition_like() {
-        let where_token = Where::condition(Operator::Like, "name", sql_string!("J%"));
+        let clause = Clause::condition(Operator::Like, "name", sql_string!("J%"));
 
         let value = Value::from(vec![("name", "John")]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -545,13 +545,13 @@ mod tests {
         assert!(result);
     }
 
-    // Where: name NOT LIKE 'J%'
+    // Clause: name NOT LIKE 'J%'
     #[test]
     fn test_condition_not_like() {
-        let where_token = Where::condition(Operator::NotLike, "name", sql_string!("J%"));
+        let clause = Clause::condition(Operator::NotLike, "name", sql_string!("J%"));
 
         let value = Value::from(vec![("name", "John")]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -559,13 +559,13 @@ mod tests {
         assert!(!result);
     }
 
-    // Where: name IN ('John', 'Jane')
+    // Clause: name IN ('John', 'Jane')
     #[test]
     fn test_condition_in() {
-        let where_token = Where::condition(Operator::In, "name", Value::from(vec!["John", "Jane"]));
+        let clause = Clause::condition(Operator::In, "name", Value::from(vec!["John", "Jane"]));
 
         let value = Value::from(vec![("name", "John")]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -573,14 +573,13 @@ mod tests {
         assert!(result);
     }
 
-    // Where: name NOT IN ('John', 'Jane')
+    // Clause: name NOT IN ('John', 'Jane')
     #[test]
     fn test_condition_not_in() {
-        let where_token =
-            Where::condition(Operator::NotIn, "name", Value::from(vec!["John", "Jane"]));
+        let clause = Clause::condition(Operator::NotIn, "name", Value::from(vec!["John", "Jane"]));
 
         let value = Value::from(vec![("name", "John")]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -588,13 +587,13 @@ mod tests {
         assert!(!result);
     }
 
-    // Where: age BETWEEN 18 and 20
+    // Clause: age BETWEEN 18 and 20
     #[test]
     fn test_condition_between() {
-        let where_token = Where::condition(Operator::Between, "age", Value::from(vec![18, 20]));
+        let clause = Clause::condition(Operator::Between, "age", Value::from(vec![18, 20]));
 
         let value = Value::from(vec![("age", 19)]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -602,13 +601,13 @@ mod tests {
         assert!(result);
     }
 
-    // Where: age NOT BETWEEN 18 and 20
+    // Clause: age NOT BETWEEN 18 and 20
     #[test]
     fn test_condition_not_between() {
-        let where_token = Where::condition(Operator::NotBetween, "age", Value::from(vec![18, 20]));
+        let clause = Clause::condition(Operator::NotBetween, "age", Value::from(vec![18, 20]));
 
         let value = Value::from(vec![("age", 19)]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -616,13 +615,13 @@ mod tests {
         assert!(!result);
     }
 
-    // Where: age IS NULL
+    // Clause: age IS NULL
     #[test]
     fn test_condition_is_null() {
-        let where_token = Where::condition(Operator::IsNull, "age", Value::from(vec![18, 20]));
+        let clause = Clause::condition(Operator::IsNull, "age", Value::from(vec![18, 20]));
 
         let value = Value::from(vec![("age", 19)]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -630,13 +629,13 @@ mod tests {
         assert!(!result);
     }
 
-    // Where: age IS NOT NULL
+    // Clause: age IS NOT NULL
     #[test]
     fn test_condition_is_not_null() {
-        let where_token = Where::condition(Operator::IsNotNull, "age", Value::from(vec![18, 20]));
+        let clause = Clause::condition(Operator::IsNotNull, "age", Value::from(vec![18, 20]));
 
         let value = Value::from(vec![("age", 19)]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -644,13 +643,13 @@ mod tests {
         assert!(result);
     }
 
-    // Where: name = 'J.*'
+    // Clause: name = 'J.*'
     #[test]
     fn test_condition_regex() {
-        let where_token = Where::condition(Operator::Regex, "name", sql_string!("J.*"));
+        let clause = Clause::condition(Operator::Regex, "name", sql_string!("J.*"));
 
         let value = Value::from(vec![("name", "John")]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -658,13 +657,13 @@ mod tests {
         assert!(result);
     }
 
-    // Where: name != 'J.*'
+    // Clause: name != 'J.*'
     #[test]
     fn test_condition_not_regex() {
-        let where_token = Where::condition(Operator::NotRegex, "name", sql_string!("J.*"));
+        let clause = Clause::condition(Operator::NotRegex, "name", sql_string!("J.*"));
 
         let value = Value::from(vec![("name", "John")]);
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -672,10 +671,10 @@ mod tests {
         assert!(!result);
     }
 
-    // Where: ((name = 'John' AND age = 18) OR name NOT REGEX 'A.*') AND birth_date BETWEEN '1980-01-01' AND '1990-01-01'
+    // Clause: ((name = 'John' AND age = 18) OR name NOT REGEX 'A.*') AND birth_date BETWEEN '1980-01-01' AND '1990-01-01'
     #[test]
     fn test_condition_complex() {
-        let group = ConditionGroup {
+        let clause = Clause::ConditionGroup(ConditionGroup {
             conditions: vec![
                 ConditionToken::ConditionGroup(ConditionGroup {
                     conditions: vec![
@@ -709,16 +708,14 @@ mod tests {
                     right: vec!["1980-01-01".to_value(), "1990-01-01".to_value()].to_value(),
                 }),
             ],
-        };
-
-        let where_token = Where::ConditionGroup(group);
+        });
 
         let value = Value::from(vec![
             ("name", "John".to_value()),
             ("birth_date", "1995-01-01".to_value()),
         ]);
 
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -731,7 +728,7 @@ mod tests {
             ("birth_date", "1985-01-01".to_value()),
         ]);
 
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -744,7 +741,7 @@ mod tests {
             ("birth_date", "1985-01-01".to_value()),
         ]);
 
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -757,11 +754,11 @@ mod tests {
             ("birth_date", "1985-01-01".to_value()),
         ]);
 
-        let result = match where_token.execute(&value) {
+        let result = match clause.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
 
         assert!(!result); // name is not John and name is start with A.*
-    }
+    } 
 }
