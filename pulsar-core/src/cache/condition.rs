@@ -18,6 +18,8 @@ pub enum Operator {
     NotBetween,
     IsNull,
     IsNotNull,
+    Regex,
+    NotRegex,
 }
 
 #[derive(ToValue, FromValue, Clone, PartialEq)]
@@ -134,6 +136,7 @@ pub enum Error {
     LeftConditionNotString,
     RightConditionNotString,
     ConditionVariableNotFound,
+    BetweenConditionInvalid,
 }
 
 impl Display for Error {
@@ -144,6 +147,7 @@ impl Display for Error {
             Error::LeftConditionNotString => write!(f, "Left condition not string"),
             Error::RightConditionNotString => write!(f, "Right condition not string"),
             Error::ConditionVariableNotFound => write!(f, "Condition variable not found"),
+            Error::BetweenConditionInvalid => write!(f, "Between condition invalid"),
         }
     }
 }
@@ -312,6 +316,55 @@ impl Where {
                     Ok(None)
                 }
             }
+            Operator::NotIn => {
+                if !Self::operator_in(&value_left, &value_right)? {
+                    Ok(Some(value.clone()))
+                } else {
+                    Ok(None)
+                }
+            }
+            Operator::Between => {
+                if Self::operator_between(&value_left, &value_right)? {
+                    Ok(Some(value.clone()))
+                } else {
+                    Ok(None)
+                }
+            }
+            Operator::NotBetween => {
+                if !Self::operator_between(&value_left, &value_right)? {
+                    Ok(Some(value.clone()))
+                } else {
+                    Ok(None)
+                }
+            }
+            Operator::IsNull => {
+                if value_left.is_null() {
+                    Ok(Some(value.clone()))
+                } else {
+                    Ok(None)
+                }
+            }
+            Operator::IsNotNull => {
+                if !value_left.is_null() {
+                    Ok(Some(value.clone()))
+                } else {
+                    Ok(None)
+                }
+            }
+            Operator::Regex => {
+                if Self::operator_regex(&value_left, &value_right)? {
+                    Ok(Some(value.clone()))
+                } else {
+                    Ok(None)
+                }
+            }
+            Operator::NotRegex => {
+                if !Self::operator_regex(&value_left, &value_right)? {
+                    Ok(Some(value.clone()))
+                } else {
+                    Ok(None)
+                }
+            }
             _ => Ok(None),
         }
     }
@@ -364,11 +417,47 @@ impl Where {
             None => return Err(Error::RightConditionNotString),
         };
 
-        right = right.replace("%", ".*");
-        right = right.replace("_", ".");
+        // no use regex
+        if right.starts_with('%') && right.ends_with('%') {
+            right = right.trim_matches('%').to_string();
+            if left.contains(&right) {
+                return Ok(true);
+            }
+        } else if right.starts_with('%') {
+            right = right.trim_start_matches('%').to_string();
+            if left.ends_with(&right) {
+                return Ok(true);
+            }
+        } else if right.ends_with('%') {
+            right = right.trim_end_matches('%').to_string();
+            if left.starts_with(&right) {
+                return Ok(true);
+            }
+        } else {
+            if left.eq(&right) {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn operator_regex(value_left: &Value, value_right: &Value) -> Result<bool, Error> {
+        let left = match value_left.as_string_b() {
+            Some(val) => val.as_string(),
+            None => return Err(Error::LeftConditionNotString),
+        };
+        let right = match value_right.as_string_b() {
+            Some(val) => val.as_string(),
+            None => return Err(Error::RightConditionNotString),
+        };
 
         let re = Regex::new(&right).unwrap();
-        Ok(re.is_match(&left))
+        if re.is_match(&left) {
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     pub fn operator_in(value_left: &Value, value_right: &Value) -> Result<bool, Error> {
@@ -393,6 +482,28 @@ impl Where {
 
         Ok(false)
     }
+
+    pub fn operator_between(value_left: &Value, value_right: &Value) -> Result<bool, Error> {
+        if !value_right.is_array() && value_right.len() != 2 {
+            return Err(Error::BetweenConditionInvalid);
+        }
+
+        let value1 = match value_right.get(0) {
+            Some(val) => val,
+            None => return Err(Error::BetweenConditionInvalid),
+        };
+
+        let value2 = match value_right.get(1) {
+            Some(val) => val,
+            None => return Err(Error::BetweenConditionInvalid),
+        };
+
+        if value_left.ge(&value1) && value_left.le(&value2) {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 #[macro_export]
@@ -412,10 +523,10 @@ mod tests {
 
     #[test]
     fn test_condition_equal() {
-        let condition = Condition::new(Operator::Equal, "name", sql_string!("John"));
+        let where_token = Where::condition(Operator::Equal, "name", sql_string!("John"));
 
         let value = Value::from(vec![("name", "John")]);
-        let result = match Where::execute_condition(condition, &value) {
+        let result = match where_token.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
@@ -425,10 +536,193 @@ mod tests {
 
     #[test]
     fn test_condition_not_equal() {
-        let condition = Condition::new(Operator::NotEqual, "name", sql_string!("John"));
+        let where_token = Where::condition(Operator::NotEqual, "name", sql_string!("John"));
 
         let value = Value::from(vec![("name", "John")]);
-        let result = match Where::execute_condition(condition, &value) {
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_condition_greater_than() {
+        let where_token = Where::condition(Operator::GreaterThan, "age", 18);
+
+        let value = Value::from(vec![("age", 19)]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert_eq!(result, Some(Value::from(vec![("age", 19)])));
+    }
+
+    #[test]
+    fn test_condition_greater_than_or_equal() {
+        let where_token = Where::condition(Operator::GreaterThanOrEqual, "age", 18);
+
+        let value = Value::from(vec![("age", 18)]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert_eq!(result, Some(Value::from(vec![("age", 18)])));
+    }
+
+    #[test]
+    fn test_condition_less_than() {
+        let where_token = Where::condition(Operator::LessThan, "age", 18);
+
+        let value = Value::from(vec![("age", 17)]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert_eq!(result, Some(Value::from(vec![("age", 17)])));
+    }
+
+    #[test]
+    fn test_condition_less_than_or_equal() {
+        let where_token = Where::condition(Operator::LessThanOrEqual, "age", 18);
+
+        let value = Value::from(vec![("age", 18)]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert_eq!(result, Some(Value::from(vec![("age", 18)])));
+    }
+
+    #[test]
+    fn test_condition_like() {
+        let where_token = Where::condition(Operator::Like, "name", sql_string!("J%"));
+
+        let value = Value::from(vec![("name", "John")]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert_eq!(result, Some(Value::from(vec![("name", "John")])));
+    }
+
+    #[test]
+    fn test_condition_not_like() {
+        let where_token = Where::condition(Operator::NotLike, "name", sql_string!("J%"));
+
+        let value = Value::from(vec![("name", "John")]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_condition_in() {
+        let where_token = Where::condition(Operator::In, "name", Value::from(vec!["John", "Jane"]));
+
+        let value = Value::from(vec![("name", "John")]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert_eq!(result, Some(Value::from(vec![("name", "John")])));
+    }
+
+    #[test]
+    fn test_condition_not_in() {
+        let where_token =
+            Where::condition(Operator::NotIn, "name", Value::from(vec!["John", "Jane"]));
+
+        let value = Value::from(vec![("name", "John")]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_condition_between() {
+        let where_token = Where::condition(Operator::Between, "age", Value::from(vec![18, 20]));
+
+        let value = Value::from(vec![("age", 19)]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_condition_not_between() {
+        let where_token = Where::condition(Operator::NotBetween, "age", Value::from(vec![18, 20]));
+
+        let value = Value::from(vec![("age", 19)]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_condition_is_null() {
+        let where_token = Where::condition(Operator::IsNull, "age", Value::from(vec![18, 20]));
+
+        let value = Value::from(vec![("age", 19)]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_condition_is_not_null() {
+        let where_token = Where::condition(Operator::IsNotNull, "age", Value::from(vec![18, 20]));
+
+        let value = Value::from(vec![("age", 19)]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_condition_regex() {
+        let where_token = Where::condition(Operator::Regex, "name", sql_string!("J.*"));
+
+        let value = Value::from(vec![("name", "John")]);
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert_eq!(result, Some(Value::from(vec![("name", "John")])));
+    }
+
+    #[test]
+    fn test_condition_not_regex() {
+        let where_token = Where::condition(Operator::NotRegex, "name", sql_string!("J.*"));
+
+        let value = Value::from(vec![("name", "John")]);
+        let result = match where_token.execute(&value) {
             Ok(result) => result,
             Err(err) => panic!("{}", err),
         };
