@@ -1,0 +1,71 @@
+POST http://localhost:3000/db/tables HTTP/1.1
+content-type: application/json
+
+{
+    "tableName": "table1",
+    "capacity": "100",
+    "strict": true,
+    "attributes": [
+        {
+            "name": "email",
+            "type": "string",
+            "partitionKey": true
+        },
+        {
+            "name": "createdAt",
+            "type": "date",
+            "sortKey": true
+        },
+        {
+            "name": "name",
+            "type": "string"
+        },
+        {
+            "name": "age",
+            "type": "number"
+        }
+    ]
+}
+
+###
+
+POST http://localhost:3000/db/table1 HTTP/1.1
+content-type: application/json
+
+{
+    "email": "example@email.com",
+    "createdAt": "2020-01-01T00:00:00.000Z",
+    "name": "example",
+    "age": 20
+}
+
+
+GET http://localhost:3000/db/table1/example@email.com HTTP/1.1
+content-type: application/json
+
+{
+    "email": "example@email.com",
+    "createdAt": "2020-01-01T00:00:00.000Z",
+    "name": "example",
+    "age": 20
+}
+
+GET http://localhost:3000/db/table1/example@email.com?
+order=desc&
+limit=10&
+start_with=2020-01 HTTP/1.1
+content-type: application/json
+
+{
+    "email": "example@email.com",
+    "createdAt": "2020-01-01T00:00:00.000Z",
+    "name": "example",
+    "age": 20
+}
+
+POST http://localhost:3000/sql
+content-type: application/json
+
+{
+    "query": "SELECT * FROM table1 WHERE email = 'example' AND createdAt = '2020-01-01T00:00:00.000Z'"
+}

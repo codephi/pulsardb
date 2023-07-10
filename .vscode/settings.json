@@ -1,6 +1,7 @@
 {
     "rust-analyzer.linkedProjects": [
         "./pulsar-core/Cargo.toml",
+        "./pulsar-core/Cargo.toml",
         "./pulsar-core/Cargo.toml"
     ]
 }
