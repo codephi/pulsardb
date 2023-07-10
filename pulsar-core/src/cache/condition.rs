@@ -53,6 +53,7 @@ impl Condition {
 pub enum ConditionToken {
     Condition(Condition),
     LogicalOperator(LogicalOperator),
+    ConditionGroup(ConditionGroup),
 }
 
 impl PrimitiveType for ConditionToken {}
@@ -77,6 +78,7 @@ impl ToValueBehavior for ConditionToken {
         match self {
             ConditionToken::Condition(condition) => condition.to_value(),
             ConditionToken::LogicalOperator(operator) => operator.to_value(),
+            ConditionToken::ConditionGroup(condition) => condition.to_value(),
         }
     }
 }
@@ -86,45 +88,7 @@ pub struct ConditionGroup {
     pub conditions: Vec<ConditionToken>,
 }
 
-#[derive(Clone)]
-pub enum ConditionTreeToken {
-    ConditionGroup(ConditionGroup),
-    LogicalOperator(LogicalOperator),
-}
-
-impl PrimitiveType for ConditionTreeToken {}
-
-impl FromValueBehavior for ConditionTreeToken {
-    type Item = Self;
-
-    fn from_value(value: Value) -> Option<Self::Item> {
-        match value.as_str() {
-            "And" => Some(ConditionTreeToken::LogicalOperator(LogicalOperator::And)),
-            "Or" => Some(ConditionTreeToken::LogicalOperator(LogicalOperator::Or)),
-            _ => {
-                let condition = ConditionGroup::from_value(value)?;
-                Some(ConditionTreeToken::ConditionGroup(condition))
-            }
-        }
-    }
-}
-
-impl ToValueBehavior for ConditionTreeToken {
-    fn to_value(&self) -> Value {
-        match self {
-            ConditionTreeToken::ConditionGroup(condition) => condition.to_value(),
-            ConditionTreeToken::LogicalOperator(operator) => operator.to_value(),
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct ConditionTree {
-    pub conditions: Vec<ConditionTreeToken>,
-}
-
 pub enum Where {
-    ConditionTree(ConditionTree),
     ConditionGroup(ConditionGroup),
     Condition(Condition),
 }
@@ -161,19 +125,12 @@ impl Where {
         Self::Condition(Condition::new(operator, left, right))
     }
 
-    pub fn condition_group(conditions: Vec<ConditionToken>) -> Self {
+    pub fn group(conditions: Vec<ConditionToken>) -> Self {
         Self::ConditionGroup(ConditionGroup { conditions })
     }
 
-    pub fn condition_tree(conditions: Vec<ConditionTreeToken>) -> Self {
-        Self::ConditionTree(ConditionTree { conditions })
-    }
-
-    pub fn execute(&self, value: &Value) -> Result<Option<Value>, Error> {
+    pub fn execute(&self, value: &Value) -> Result<bool, Error> {
         match self {
-            Where::ConditionTree(condition_tree) => {
-                Self::execute_condition_tree(condition_tree, value)
-            }
             Where::ConditionGroup(condition_group) => {
                 Self::execute_condition_group(condition_group, value)
             }
@@ -181,65 +138,37 @@ impl Where {
         }
     }
 
-    pub fn execute_condition_tree(
-        condition_tree: &ConditionTree,
-        value: &Value,
-    ) -> Result<Option<Value>, Error> {
-        let mut result = None;
-
-        for condition in &condition_tree.conditions {
-            match condition {
-                ConditionTreeToken::ConditionGroup(condition_group) => {
-                    let condition_result = Self::execute_condition_group(condition_group, value)?;
-
-                    if let Some(condition_result) = condition_result {
-                        result = Some(condition_result);
-                    }
-                }
-                ConditionTreeToken::LogicalOperator(operator) => match operator {
-                    LogicalOperator::And => {
-                        if result.is_none() {
-                            return Ok(None);
-                        }
-                    }
-                    LogicalOperator::Or => {}
-                },
-            }
-        }
-
-        Ok(result)
-    }
-
     fn execute_condition_group(
         condition_group: &ConditionGroup,
         value: &Value,
-    ) -> Result<Option<Value>, Error> {
-        let mut result = None;
+    ) -> Result<bool, Error> {
+        let mut result = false;
 
         for condition in &condition_group.conditions {
             match condition {
                 ConditionToken::Condition(condition) => {
-                    let condition_result = Self::execute_condition(condition.clone(), value)?;
-
-                    if let Some(condition_result) = condition_result {
-                        result = Some(condition_result);
-                    }
+                    result = Self::execute_condition(condition.clone(), value)?;
                 }
                 ConditionToken::LogicalOperator(operator) => match operator {
                     LogicalOperator::And => {
-                        if result.is_none() {
-                            return Ok(None);
+                        if !result {
+                            return Ok(false);
+                        } else {
+                            result = false;
                         }
                     }
                     LogicalOperator::Or => {}
                 },
+                ConditionToken::ConditionGroup(condition_group) => {
+                    result = Self::execute_condition_group(condition_group, value)?;
+                }
             }
         }
 
         Ok(result)
     }
 
-    pub fn execute_condition(condition: Condition, value: &Value) -> Result<Option<Value>, Error> {
+    pub fn execute_condition(condition: Condition, value: &Value) -> Result<bool, Error> {
         let value_left = match Self::resolve_condition_variable(&condition.left.to_value(), &value)
         {
             Ok(val) => val,
@@ -255,117 +184,117 @@ impl Where {
         match condition.operator {
             Operator::Equal => {
                 if value_left.eq(&value_right) {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::NotEqual => {
                 if value_left.ne(&value_right) {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::GreaterThan => {
                 if value_left.gt(&value_right) {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::GreaterThanOrEqual => {
                 if value_left.ge(&value_right) {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::LessThan => {
                 if value_left.lt(&value_right) {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::LessThanOrEqual => {
                 if value_left.le(&value_right) {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::Like => {
                 if Self::operator_like(&value_left, &value_right)? {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::NotLike => {
                 if !Self::operator_like(&value_left, &value_right)? {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::In => {
                 if Self::operator_in(&value_left, &value_right)? {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::NotIn => {
                 if !Self::operator_in(&value_left, &value_right)? {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::Between => {
                 if Self::operator_between(&value_left, &value_right)? {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::NotBetween => {
                 if !Self::operator_between(&value_left, &value_right)? {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::IsNull => {
                 if value_left.is_null() {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::IsNotNull => {
                 if !value_left.is_null() {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::Regex => {
                 if Self::operator_regex(&value_left, &value_right)? {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
             Operator::NotRegex => {
                 if !Self::operator_regex(&value_left, &value_right)? {
-                    Ok(Some(value.clone()))
+                    Ok(true)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 }
             }
-            _ => Ok(None),
+            _ => Ok(false),
         }
     }
 
@@ -515,12 +444,10 @@ macro_rules! sql_string {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Condition, ConditionGroup, ConditionTree, ConditionTreeToken, LogicalOperator, Operator,
-        Where,
-    };
+    use super::{Condition, ConditionGroup, ConditionToken, LogicalOperator, Operator, Where};
     use valu3::prelude::*;
 
+    // Where: name = 'John'
     #[test]
     fn test_condition_equal() {
         let where_token = Where::condition(Operator::Equal, "name", sql_string!("John"));
@@ -531,9 +458,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, Some(Value::from(vec![("name", "John")])));
+        assert!(result)
     }
 
+    // Where: name <> 'John'
     #[test]
     fn test_condition_not_equal() {
         let where_token = Where::condition(Operator::NotEqual, "name", sql_string!("John"));
@@ -544,9 +472,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, None);
+        assert!(!result);
     }
 
+    // Where: age < 18
     #[test]
     fn test_condition_greater_than() {
         let where_token = Where::condition(Operator::GreaterThan, "age", 18);
@@ -557,9 +486,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, Some(Value::from(vec![("age", 19)])));
+        assert!(result);
     }
 
+    // Where: age >= 18
     #[test]
     fn test_condition_greater_than_or_equal() {
         let where_token = Where::condition(Operator::GreaterThanOrEqual, "age", 18);
@@ -570,9 +500,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, Some(Value::from(vec![("age", 18)])));
+        assert!(result);
     }
 
+    // Where: age < 18
     #[test]
     fn test_condition_less_than() {
         let where_token = Where::condition(Operator::LessThan, "age", 18);
@@ -583,9 +514,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, Some(Value::from(vec![("age", 17)])));
+        assert!(result);
     }
 
+    // Where: age <= 18
     #[test]
     fn test_condition_less_than_or_equal() {
         let where_token = Where::condition(Operator::LessThanOrEqual, "age", 18);
@@ -596,9 +528,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, Some(Value::from(vec![("age", 18)])));
+        assert!(result);
     }
 
+    // Where: name LIKE 'J%'
     #[test]
     fn test_condition_like() {
         let where_token = Where::condition(Operator::Like, "name", sql_string!("J%"));
@@ -609,9 +542,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, Some(Value::from(vec![("name", "John")])));
+        assert!(result);
     }
 
+    // Where: name NOT LIKE 'J%'
     #[test]
     fn test_condition_not_like() {
         let where_token = Where::condition(Operator::NotLike, "name", sql_string!("J%"));
@@ -622,9 +556,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, None);
+        assert!(!result);
     }
 
+    // Where: name IN ('John', 'Jane')
     #[test]
     fn test_condition_in() {
         let where_token = Where::condition(Operator::In, "name", Value::from(vec!["John", "Jane"]));
@@ -635,9 +570,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, Some(Value::from(vec![("name", "John")])));
+        assert!(result);
     }
 
+    // Where: name NOT IN ('John', 'Jane')
     #[test]
     fn test_condition_not_in() {
         let where_token =
@@ -649,9 +585,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, None);
+        assert!(!result);
     }
 
+    // Where: age BETWEEN 18 and 20
     #[test]
     fn test_condition_between() {
         let where_token = Where::condition(Operator::Between, "age", Value::from(vec![18, 20]));
@@ -662,9 +599,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert!(result.is_some());
+        assert!(result);
     }
 
+    // Where: age NOT BETWEEN 18 and 20
     #[test]
     fn test_condition_not_between() {
         let where_token = Where::condition(Operator::NotBetween, "age", Value::from(vec![18, 20]));
@@ -675,9 +613,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert!(result.is_none());
+        assert!(!result);
     }
 
+    // Where: age IS NULL
     #[test]
     fn test_condition_is_null() {
         let where_token = Where::condition(Operator::IsNull, "age", Value::from(vec![18, 20]));
@@ -688,9 +627,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert!(result.is_none());
+        assert!(!result);
     }
 
+    // Where: age IS NOT NULL
     #[test]
     fn test_condition_is_not_null() {
         let where_token = Where::condition(Operator::IsNotNull, "age", Value::from(vec![18, 20]));
@@ -701,9 +641,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert!(result.is_some());
+        assert!(result);
     }
 
+    // Where: name = 'J.*'
     #[test]
     fn test_condition_regex() {
         let where_token = Where::condition(Operator::Regex, "name", sql_string!("J.*"));
@@ -714,9 +655,10 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, Some(Value::from(vec![("name", "John")])));
+        assert!(result);
     }
 
+    // Where: name != 'J.*'
     #[test]
     fn test_condition_not_regex() {
         let where_token = Where::condition(Operator::NotRegex, "name", sql_string!("J.*"));
@@ -727,6 +669,99 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
 
-        assert_eq!(result, None);
+        assert!(!result);
+    }
+
+    // Where: ((name = 'John' AND age = 18) OR name NOT REGEX 'A.*') AND birth_date BETWEEN '1980-01-01' AND '1990-01-01'
+    #[test]
+    fn test_condition_complex() {
+        let group = ConditionGroup {
+            conditions: vec![
+                ConditionToken::ConditionGroup(ConditionGroup {
+                    conditions: vec![
+                        ConditionToken::ConditionGroup(ConditionGroup {
+                            conditions: vec![
+                                ConditionToken::Condition(Condition {
+                                    operator: Operator::Equal,
+                                    left: "name".to_value(),
+                                    right: "John".to_value(),
+                                }),
+                                ConditionToken::LogicalOperator(LogicalOperator::And),
+                                ConditionToken::Condition(Condition {
+                                    operator: Operator::Equal,
+                                    left: "age".to_value(),
+                                    right: 18.to_value(),
+                                }),
+                            ],
+                        }),
+                        ConditionToken::LogicalOperator(LogicalOperator::Or),
+                        ConditionToken::Condition(Condition {
+                            operator: Operator::NotRegex,
+                            left: "name".to_value(),
+                            right: "A.*".to_value(),
+                        }),
+                    ],
+                }),
+                ConditionToken::LogicalOperator(LogicalOperator::And),
+                ConditionToken::Condition(Condition {
+                    operator: Operator::Between,
+                    left: "birth_date".to_value(),
+                    right: vec!["1980-01-01".to_value(), "1990-01-01".to_value()].to_value(),
+                }),
+            ],
+        };
+
+        let where_token = Where::ConditionGroup(group);
+
+        let value = Value::from(vec![
+            ("name", "John".to_value()),
+            ("birth_date", "1995-01-01".to_value()),
+        ]);
+
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert!(!result); // birth_date is not between 1980-01-01 and 1990-01-01
+
+        let value = Value::from(vec![
+            ("name", "Arial".to_value()),
+            ("age", 20.to_value()),
+            ("birth_date", "1985-01-01".to_value()),
+        ]);
+
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert!(!result); // name is not John and age is not 18
+
+        let value = Value::from(vec![
+            ("name", "John".to_value()),
+            ("age", 18.to_value()),
+            ("birth_date", "1985-01-01".to_value()),
+        ]);
+
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert!(result); // name is not John and age is 18 and birth_date is between 1980-01-01 and 1990-01-01
+
+        let value = Value::from(vec![
+            ("name", "Arial".to_value()),
+            ("age", 18.to_value()),
+            ("birth_date", "1985-01-01".to_value()),
+        ]);
+
+        let result = match where_token.execute(&value) {
+            Ok(result) => result,
+            Err(err) => panic!("{}", err),
+        };
+
+        assert!(!result); // name is not John and name is start with A.*
     }
 }
