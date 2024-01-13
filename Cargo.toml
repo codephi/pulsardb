@@ -1,4 +1,5 @@
 [workspace]
 members = [
-    "pulsar-core"
+    "core",
+    "protocol",
 ]

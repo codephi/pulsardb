@@ -7,15 +7,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'pulsar-core'",
+            "name": "Debug executable 'core'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=pulsar-core",
-                    "--package=pulsar-core"
+                    "--bin=core",
+                    "--package=core"
                 ],
                 "filter": {
-                    "name": "pulsar-core",
+                    "name": "core",
                     "kind": "bin"
                 }
             },
@@ -25,16 +25,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'pulsar-core'",
+            "name": "Debug unit tests in executable 'core'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=pulsar-core",
-                    "--package=pulsar-core"
+                    "--bin=core",
+                    "--package=core"
                 ],
                 "filter": {
-                    "name": "pulsar-core",
+                    "name": "core",
                     "kind": "bin"
                 }
             },
