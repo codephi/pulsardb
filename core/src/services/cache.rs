@@ -1,12 +1,9 @@
 use std::sync::{Arc, Mutex};
-
-use crate::{
-    cache::{
-        cache::{Cache, Error, ListProps},
-        table::Table, partition::Partition,
-    },
-    events::Events,
+use cache::{
+    cache::{Cache, Error, ListProps},
+    table::Table, partition::Partition,
 };
+use events::Events;
 
 pub struct CacheService {
     pub tables: Cache<Table>,

@@ -107,7 +107,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fmt::Display;
-pub use valu3::prelude::*;
 
 pub enum Error {
     SortKeyNotFound,
@@ -447,31 +446,31 @@ mod test {
     #[test]
     fn test_cache_insert() {
         let mut cache = Cache::new(2);
-        cache.insert("key1", Value::from(1));
-        cache.insert("key2", Value::from(2));
-        cache.insert("key3", Value::from(3));
+        cache.insert("key1", 1);
+        cache.insert("key2", 2);
+        cache.insert("key3", 3);
         assert_eq!(cache.get("key1"), None);
-        assert_eq!(cache.get("key2"), Some(&Value::from(2)));
-        assert_eq!(cache.get("key3"), Some(&Value::from(3)));
+        assert_eq!(cache.get("key2"), Some(&2));
+        assert_eq!(cache.get("key3"), Some(&3));
     }
 
     #[test]
     fn test_cache_remove() {
         let mut cache = Cache::new(2);
-        cache.insert("key1", Value::from(1));
-        cache.insert("key2", Value::from(2));
+        cache.insert("key1", 1);
+        cache.insert("key2", 2);
         cache.remove("key1");
         assert_eq!(cache.get("key1"), None);
-        cache.insert("key3", Value::from(3));
-        assert_eq!(cache.get("key3"), Some(&Value::from(3)));
-        assert_eq!(cache.get("key2"), Some(&Value::from(2)));
+        cache.insert("key3", 3);
+        assert_eq!(cache.get("key3"), Some(&3));
+        assert_eq!(cache.get("key2"), Some(&2));
     }
 
     #[test]
     fn test_cache_clear() {
-        let mut cache = Cache::<Value>::new(2);
-        cache.insert("key1", Value::from(1));
-        cache.insert("key2", Value::from(2));
+        let mut cache = Cache::new(2);
+        cache.insert("key1", 1);
+        cache.insert("key2", 2);
         cache.clear();
         assert_eq!(cache.len(), 0);
     }
@@ -479,11 +478,11 @@ mod test {
     #[test]
     fn test_cache_list_asc() {
         let mut cache = Cache::new(5);
-        cache.insert("key2", Value::from(2));
-        cache.insert("key1", Value::from(1));
-        cache.insert("key5", Value::from(5));
-        cache.insert("key4", Value::from(4));
-        cache.insert("key3", Value::from(3));
+        cache.insert("key2", 2);
+        cache.insert("key1", 1);
+        cache.insert("key5", 5);
+        cache.insert("key4", 4);
+        cache.insert("key3", 3);
 
         let result_res = cache.list(StartAfter::Key("key2"));
 
@@ -495,19 +494,19 @@ mod test {
         };
 
         assert_eq!(result.len(), 3);
-        assert_eq!(result[0], ("key3", &Value::from(3)));
-        assert_eq!(result[1], ("key4", &Value::from(4)));
-        assert_eq!(result[2], ("key5", &Value::from(5)));
+        assert_eq!(result[0], ("key3", &3));
+        assert_eq!(result[1], ("key4", &4));
+        assert_eq!(result[2], ("key5", &5));
     }
 
     #[test]
     fn test_cache_list_desc() {
         let mut cache = Cache::new(5);
-        cache.insert("key5", Value::from(5));
-        cache.insert("key1", Value::from(1));
-        cache.insert("key3", Value::from(3));
-        cache.insert("key4", Value::from(4));
-        cache.insert("key2", Value::from(2));
+        cache.insert("key5", 5);
+        cache.insert("key1", 1);
+        cache.insert("key3", 3);
+        cache.insert("key4", 4);
+        cache.insert("key2", 2);
 
         let result_res = cache.list(ListProps {
             order: Order::Desc,
@@ -524,24 +523,24 @@ mod test {
         };
 
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0], ("key2", &Value::from(2)));
-        assert_eq!(result[1], ("key1", &Value::from(1)));
+        assert_eq!(result[0], ("key2", &2));
+        assert_eq!(result[1], ("key1", &1));
     }
 
     #[test]
     fn test_filter_start_with() {
         let mut cache = Cache::new(10);
 
-        cache.insert("postmodern", Value::from(8));
-        cache.insert("postpone", Value::from(6));
-        cache.insert("precept", Value::from(2));
-        cache.insert("postmortem", Value::from(9));
-        cache.insert("precaution", Value::from(3));
-        cache.insert("precede", Value::from(1));
-        cache.insert("precognition", Value::from(5));
-        cache.insert("postmark", Value::from(10));
-        cache.insert("postgraduate", Value::from(7));
-        cache.insert("preconceive", Value::from(4));
+        cache.insert("postmodern", 8);
+        cache.insert("postpone", 6);
+        cache.insert("precept", 2);
+        cache.insert("postmortem", 9);
+        cache.insert("precaution", 3);
+        cache.insert("precede", 1);
+        cache.insert("precognition", 5);
+        cache.insert("postmark", 10);
+        cache.insert("postgraduate", 7);
+        cache.insert("preconceive", 4);
 
         let result_res = cache.list(Filter::StartWith("postm"));
 
@@ -553,25 +552,25 @@ mod test {
         };
 
         assert_eq!(result.len(), 3);
-        assert_eq!(result[0], ("postmark", &Value::from(10)));
-        assert_eq!(result[1], ("postmodern", &Value::from(8)));
-        assert_eq!(result[2], ("postmortem", &Value::from(9)));
+        assert_eq!(result[0], ("postmark", &10));
+        assert_eq!(result[1], ("postmodern", &8));
+        assert_eq!(result[2], ("postmortem", &9));
     }
 
     #[test]
     fn test_filter_ends_with() {
         let mut cache = Cache::new(10);
 
-        cache.insert("postmodern", Value::from(8));
-        cache.insert("postpone", Value::from(6));
-        cache.insert("precept", Value::from(2));
-        cache.insert("postmortem", Value::from(9));
-        cache.insert("precaution", Value::from(3));
-        cache.insert("precede", Value::from(1));
-        cache.insert("precognition", Value::from(5));
-        cache.insert("postmark", Value::from(10));
-        cache.insert("postgraduate", Value::from(7));
-        cache.insert("preconceive", Value::from(4));
+        cache.insert("postmodern", 8);
+        cache.insert("postpone", 6);
+        cache.insert("precept", 2);
+        cache.insert("postmortem", 9);
+        cache.insert("precaution", 3);
+        cache.insert("precede", 1);
+        cache.insert("precognition", 5);
+        cache.insert("postmark", 10);
+        cache.insert("postgraduate", 7);
+        cache.insert("preconceive", 4);
 
         let result_res = cache.list(Filter::EndWith("tion"));
 
@@ -583,7 +582,7 @@ mod test {
         };
 
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0], ("precaution", &Value::from(3)));
-        assert_eq!(result[1], ("precognition", &Value::from(5)));
+        assert_eq!(result[0], ("precaution", &3));
+        assert_eq!(result[1], ("precognition", &5));
     }
 }

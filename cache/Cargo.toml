@@ -1,12 +1,10 @@
 [package]
-name = "core"
+name = "cache"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-futures = "0.3.28"
-tokio = { version = "1.35.1", features = ["full"] }
-cache = { path="../cache" }
-events = { path="../events" }
+valu3 = { version = "0.3.6", git = "https://github.com/purp-lang/valu3" }
+regex = "1.10.2"

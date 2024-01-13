@@ -1,5 +1,5 @@
-use hyper::{body::Incoming, Request, Response};
 use hyper::server::conn::http1;
+use hyper::{body::Incoming, Request as HyperRequest, Response as HyperResponse};
 use hyper_util::rt::TokioIo;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
@@ -9,9 +9,13 @@ use super::{
     routers,
 };
 
-pub type HandlerResult = Result<Response<http_body_util::Full<bytes::Bytes>>, hyper::Error>;
+pub type Request = HyperRequest<Incoming>;
 
-pub type Handler = fn(Request<Incoming>) -> HandlerResult;
+pub type Response = HyperResponse<http_body_util::Full<bytes::Bytes>>;
+
+pub type HandlerResult = Result<Response, hyper::Error>;
+
+pub type Handler = fn(Request) -> HandlerResult;
 
 #[derive(Clone)]
 pub(crate) struct HttpProtocolInner {
@@ -27,14 +31,14 @@ impl HttpProtocolInner {
 
     pub async fn listen(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let addr: SocketAddr = ([127, 0, 0, 1], 3000).into();
-    
+
         let listener = TcpListener::bind(addr).await?;
-    
+
         loop {
             let (stream, _) = listener.accept().await?;
             let io: TokioIo<tokio::net::TcpStream> = TokioIo::new(stream);
             let service_clone = self.clone();
-    
+
             tokio::task::spawn(async move {
                 if let Err(err) = http1::Builder::new()
                     .serve_connection(io, service_clone)
@@ -46,7 +50,7 @@ impl HttpProtocolInner {
         }
     }
 
-    fn resolve_routers(&self, req: Request<Incoming>) -> HandlerResult {
+    fn resolve_routers(&self, req: Request) -> HandlerResult {
         let path = req.uri().path();
         let method = req.method();
 
@@ -57,20 +61,16 @@ impl HttpProtocolInner {
     }
 }
 
-use bytes::Bytes;
-use http_body_util::Full;
-use hyper::body::Incoming as IncomingBody;
 use hyper::service::Service;
-
 use std::future::Future;
 use std::pin::Pin;
 
-impl Service<Request<IncomingBody>> for HttpProtocolInner {
-    type Response = Response<Full<Bytes>>;
+impl Service<Request> for HttpProtocolInner {
+    type Response = Response;
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn call(&self, req: Request<IncomingBody>) -> Self::Future {
+    fn call(&self, req: Request) -> Self::Future {
         let res = self.resolve_routers(req);
         Box::pin(async { res })
     }

@@ -3,10 +3,6 @@ mod responses;
 mod router_tree;
 mod routers;
 
-use std::future::Future;
-
-use hyper::Error;
-
 use crate::http::router_tree::RouterTree;
 
 use self::controller::Handler;
@@ -26,9 +22,9 @@ impl Http {
         self.router_tree.push(router);
     }
 
-    pub fn listen(&self) -> impl Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>>  {
+    pub async fn listen(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let inner = controller::HttpProtocolInner::new(self.router_tree.clone());
 
-        inner.listen()
+        inner.listen().await
     }
 }
