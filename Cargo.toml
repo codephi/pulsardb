@@ -3,5 +3,6 @@ members = [
     "core",
     "protocol",
     "events",
-    "cache"
+    "cache",
+    "storage"
 ]
