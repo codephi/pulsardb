@@ -6,3 +6,4 @@ members = [
     "cache",
     "storage"
 ]
+resolver = "2"

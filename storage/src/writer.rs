@@ -15,7 +15,7 @@ pub fn writer_parquet() -> Result<(), Box<dyn std::error::Error>> {
 
     // Criando dados de exemplo
     let id = Int32Array::from(vec![1, 2, 3]);
-    let nome = StringArray::from(vec!["Alice", "Bob", "Carol"]);
+    let nome = StringArray::from(vec!["Alice".to_string(), "Bob".to_string(), "Carol".to_string()]);
     let ativo = BooleanArray::from(vec![true, false, true]);
     let saldo = Float64Array::from(vec![Some(100.0), None, Some(150.0)]);
 
