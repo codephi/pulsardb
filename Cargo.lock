@@ -1803,7 +1803,7 @@ dependencies = [
  "pest_derive",
  "regex",
  "serde",
- "valu3-derive 0.3.13",
+ "valu3-derive 0.3.14",
 ]
 
 [[package]]
@@ -1818,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "valu3-derive"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1827,7 +1827,7 @@ dependencies = [
 
 [[package]]
 name = "valu3_parquet"
-version = "0.1.1"
+version = "0.3.14"
 dependencies = [
  "arrow",
  "parquet",
