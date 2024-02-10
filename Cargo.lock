@@ -1584,7 +1584,8 @@ dependencies = [
  "arrow",
  "parquet",
  "prettytable",
- "valu3 0.3.14",
+ "valu3 0.4.5",
+ "valu3-parquet",
 ]
 
 [[package]]
@@ -1796,14 +1797,14 @@ dependencies = [
 
 [[package]]
 name = "valu3"
-version = "0.3.14"
+version = "0.4.5"
 dependencies = [
  "chrono",
  "pest",
  "pest_derive",
  "regex",
  "serde",
- "valu3-derive 0.3.14",
+ "valu3-derive 0.4.5",
 ]
 
 [[package]]
@@ -1818,7 +1819,7 @@ dependencies = [
 
 [[package]]
 name = "valu3-derive"
-version = "0.3.14"
+version = "0.4.5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1826,13 +1827,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "valu3_parquet"
-version = "0.3.14"
+name = "valu3-parquet"
+version = "0.4.5"
 dependencies = [
  "arrow",
+ "bytes",
  "parquet",
  "prettytable",
- "valu3 0.3.14",
+ "valu3 0.4.5",
 ]
 
 [[package]]

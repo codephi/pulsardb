@@ -10,3 +10,4 @@ parquet = "50.0.0"
 arrow = "50.0.0"
 prettytable = "0.10.0"
 valu3 = { path = "../valu3/valu3" }
+valu3-parquet = { path = "../valu3/valu3_parquet" }
