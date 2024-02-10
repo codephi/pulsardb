@@ -11,3 +11,10 @@ arrow = "50.0.0"
 prettytable = "0.10.0"
 valu3 = { path = "../valu3/valu3" }
 valu3-parquet = { path = "../valu3/valu3_parquet" }
+aws-config = "1.1.5"
+aws-sdk-s3 = "1.15.0"
+tokio = { version = "1.36.0", features = ["full"] }
+anyhow = "1.0.79"
+bytes = "1.5.0"
+chrono = "0.4.33"
+uuid = { version = "1.7.0", features = ["v4"] }
