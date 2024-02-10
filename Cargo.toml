@@ -4,6 +4,9 @@ members = [
     "protocol",
     "events",
     "cache",
-    "storage"
+    "storage",
+    "valu3/valu3",
+    "valu3/valu3_derive",
+    "valu3/valu3_parket",
 ]
 resolver = "2"

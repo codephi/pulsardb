@@ -11,11 +11,20 @@ pub fn writer_parquet() -> Result<(), Box<dyn std::error::Error>> {
         Field::new("nome", DataType::Utf8, false),
         Field::new("ativo", DataType::Boolean, false),
         Field::new("saldo", DataType::Float64, true),
+        Field::new(
+            "tags",
+            DataType::List(Arc::new(Field::new("item", DataType::Utf8, false))),
+            false,
+        )
     ]));
 
     // Criando dados de exemplo
     let id = Int32Array::from(vec![1, 2, 3]);
-    let nome = StringArray::from(vec!["Alice".to_string(), "Bob".to_string(), "Carol".to_string()]);
+    let nome = StringArray::from(vec![
+        "Alice".to_string(),
+        "Bob".to_string(),
+        "Carol".to_string(),
+    ]);
     let ativo = BooleanArray::from(vec![true, false, true]);
     let saldo = Float64Array::from(vec![Some(100.0), None, Some(150.0)]);
 
@@ -23,7 +32,7 @@ pub fn writer_parquet() -> Result<(), Box<dyn std::error::Error>> {
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![
-            Arc::new(id) as Arc<dyn arrow::array::Array>,
+            Arc::new(id),
             Arc::new(nome),
             Arc::new(ativo),
             Arc::new(saldo),

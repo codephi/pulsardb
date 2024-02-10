@@ -1,26 +1,12 @@
-use arrow::datatypes::{DataType, Field, GenericStringType, Schema};
+use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use parquet::format::StringType;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::vec;
 use valu3::prelude::*;
 
-use arrow::array::{
-    Array, ArrayRef, BooleanArray, BooleanBuilder, Float64Array, GenericStringBuilder, Int32Array,
-    NullArray, StringArray,
-};
+use arrow::array::{Array, BooleanArray, Float64Array, Int32Array, StringArray};
 use prettytable::{Cell, Row, Table};
-
-macro_rules! array_to_value {
-    ($array:ident, $row:ident) => {
-        if $array.is_nullable() && $array.is_null($row) {
-            Value::Null
-        } else {
-            Value::from($array.value($row))
-        }
-    };
-}
 
 #[derive(Debug, Clone)]
 pub struct ValueTable {
@@ -42,6 +28,21 @@ impl ValueTable {
 
     pub fn add_col(&mut self, col: Vec<Value>) {
         self.cols.push(col);
+    }
+
+    pub fn push_item(&mut self, col: usize, value: Value) {
+        self.cols[col].push(value);
+    }
+
+    pub fn push_item_in_header(&mut self, header: &str, value: Value) {
+        let index = self.headers.iter().position(|x| x == header);
+
+        if let Some(index) = index {
+            self.push_item(index, value);
+        } else {
+            let index = self.add_header(header.to_string());
+            self.push_item(index, value);
+        }
     }
 
     pub fn add_header(&mut self, header: String) -> usize {
@@ -92,7 +93,7 @@ impl ValueTable {
                 .get(self.cols.iter().position(|x| x == col).unwrap())
                 .unwrap();
 
-            for (index, value) in col.iter().enumerate() {
+            for value in col.iter() {
                 col_map.insert(header.clone(), value.clone());
             }
 
@@ -109,6 +110,16 @@ impl ValueTable {
     pub fn to_json(&self) -> String {
         self.to_value().to_string()
     }
+}
+
+macro_rules! array_to_value {
+    ($array:ident, $row:ident) => {
+        if $array.is_nullable() && $array.is_null($row) {
+            Value::Null
+        } else {
+            Value::from($array.value($row))
+        }
+    };
 }
 
 impl From<&RecordBatch> for ValueTable {
@@ -193,7 +204,13 @@ impl From<&RecordBatch> for ValueTable {
                             .as_any()
                             .downcast_ref::<arrow::array::TimestampNanosecondArray>()
                             .unwrap();
-                        array_to_value!(array, row)
+
+                        if array.is_nullable() && array.is_null(row) {
+                            Value::Null
+                        } else {
+                            let value = array.value(row);
+                            DateTime::from(value).to_value()
+                        }
                     }
                     &DataType::Date32 => {
                         let array = col_data
@@ -286,11 +303,72 @@ impl From<&Vec<RecordBatch>> for ValueTable {
     }
 }
 
-impl From<&ValueTable> for RecordBatch {
-    fn from(value_table: &ValueTable) -> Self {
+#[derive(Debug)]
+pub enum ValueTableError {
+    InvalidDataType(String),
+    CreateRecordBatch(String),
+}
+
+macro_rules! value_get_i32 {
+    ($value:expr) => {
+        match $value.get_i32() {
+            Some(value) => value,
+            None => match $value.get_f64() {
+                Some(value) => value as i32,
+                None => {
+                    return Err(ValueTableError::InvalidDataType(
+                        format!(
+                            "A list that starts with i32 can only work with i32 or float64. Current value: {}",
+                            $value
+                        ),
+                    ))
+                }
+            },
+        }
+    };
+}
+
+macro_rules! value_get_f64 {
+    ($value:expr) => {
+        match $value.get_f64() {
+            Some(value) => value,
+            None => match $value.get_i32() {
+                Some(value) => value as f64,
+                None => {
+                    return Err(ValueTableError::InvalidDataType(
+                        format!(
+                            "A list that starts with float64 can only work with f64 or i32. Current value: {}",
+                            $value
+                        ),
+                    ))
+                }
+            },
+        }
+    };
+}
+
+impl TryFrom<&ValueTable> for RecordBatch {
+    type Error = ValueTableError;
+
+    fn try_from(value_table: &ValueTable) -> Result<Self, Self::Error> {
         let mut schema_types: Vec<DataType> = Vec::new();
 
         let mut columns: Vec<Arc<dyn Array>> = Vec::new();
+
+        macro_rules! columns_push {
+            ($col_is_nullable:expr, $values:expr,$type:ident) => {
+                if $col_is_nullable {
+                    columns.push(Arc::new($type::from($values)));
+                } else {
+                    columns.push(Arc::new($type::from(
+                        $values
+                            .iter()
+                            .map(|x| x.clone().unwrap())
+                            .collect::<Vec<_>>(),
+                    )));
+                }
+            };
+        }
 
         for col in value_table.cols.iter() {
             let mut col_iter = col.iter();
@@ -321,16 +399,7 @@ impl From<&ValueTable> for RecordBatch {
                             }
                         }
 
-                        if col_is_nullable {
-                            columns.push(Arc::new(StringArray::from(values)));
-                        } else {
-                            columns.push(Arc::new(StringArray::from(
-                                values
-                                    .iter()
-                                    .map(|x| x.clone().unwrap())
-                                    .collect::<Vec<_>>(),
-                            )));
-                        }
+                        columns_push!(col_is_nullable, values, StringArray);
 
                         break;
                     }
@@ -341,12 +410,12 @@ impl From<&ValueTable> for RecordBatch {
                             let mut col_is_nullable = total_prepend_nulls > 0;
 
                             let mut values = vec![None; total_prepend_nulls];
-                            values.push(Some(value.get_f64().unwrap()));
+                            values.push(Some(value_get_f64!(value)));
 
                             while let Some(value) = col_iter.next() {
                                 match &value {
                                     Value::Number(value) => {
-                                        values.push(Some(value.get_f64().unwrap()));
+                                        values.push(Some(value_get_f64!(value)));
                                     }
                                     _ => {
                                         if !col_is_nullable {
@@ -358,16 +427,7 @@ impl From<&ValueTable> for RecordBatch {
                                 }
                             }
 
-                            if col_is_nullable {
-                                columns.push(Arc::new(Float64Array::from(values)));
-                            } else {
-                                columns.push(Arc::new(Float64Array::from(
-                                    values
-                                        .iter()
-                                        .map(|x| x.clone().unwrap())
-                                        .collect::<Vec<_>>(),
-                                )));
-                            }
+                            columns_push!(col_is_nullable, values, Float64Array);
 
                             break;
                         } else {
@@ -376,12 +436,12 @@ impl From<&ValueTable> for RecordBatch {
                             let mut col_is_nullable = total_prepend_nulls > 0;
 
                             let mut values = vec![None; total_prepend_nulls];
-                            values.push(Some(value.get_i32().unwrap()));
+                            values.push(Some(value_get_i32!(value)));
 
                             while let Some(value) = col_iter.next() {
                                 match &value {
                                     Value::Number(value) => {
-                                        values.push(Some(value.get_i32().unwrap()));
+                                        values.push(Some(value_get_i32!(value)));
                                     }
                                     _ => {
                                         if !col_is_nullable {
@@ -393,16 +453,7 @@ impl From<&ValueTable> for RecordBatch {
                                 }
                             }
 
-                            if col_is_nullable {
-                                columns.push(Arc::new(Int32Array::from(values)));
-                            } else {
-                                columns.push(Arc::new(Int32Array::from(
-                                    values
-                                        .iter()
-                                        .map(|x| x.clone().unwrap())
-                                        .collect::<Vec<_>>(),
-                                )));
-                            }
+                            columns_push!(col_is_nullable, values, Int32Array);
 
                             break;
                         }
@@ -430,16 +481,34 @@ impl From<&ValueTable> for RecordBatch {
                             }
                         }
 
-                        if col_is_nullable {
-                            columns.push(Arc::new(BooleanArray::from(values)));
-                        } else {
-                            columns.push(Arc::new(BooleanArray::from(
-                                values
-                                    .iter()
-                                    .map(|x| x.clone().unwrap())
-                                    .collect::<Vec<_>>(),
-                            )));
+                        columns_push!(col_is_nullable, values, BooleanArray);
+
+                        break;
+                    }
+                    Value::Object(_) | Value::Array(_) => {
+                        schema_types.push(DataType::Utf8);
+
+                        let mut col_is_nullable = total_prepend_nulls > 0;
+
+                        let mut values = vec![None; total_prepend_nulls];
+                        values.push(Some(item.to_json(JsonMode::Inline)));
+
+                        while let Some(value) = col_iter.next() {
+                            match &value {
+                                Value::Object(_) => {
+                                    values.push(Some(value.to_json(JsonMode::Inline)));
+                                }
+                                _ => {
+                                    if !col_is_nullable {
+                                        col_is_nullable = true;
+                                    }
+
+                                    values.push(None)
+                                }
+                            }
                         }
+
+                        columns_push!(col_is_nullable, values, StringArray);
 
                         break;
                     }
@@ -461,7 +530,15 @@ impl From<&ValueTable> for RecordBatch {
             Arc::new(Schema::new(fields))
         };
 
-        RecordBatch::try_new(schema, columns).unwrap()
+        Ok(match RecordBatch::try_new(schema, columns) {
+            Ok(record_batch) => record_batch,
+            Err(error) => {
+                return Err(ValueTableError::CreateRecordBatch(format!(
+                    "Error creating record batch: {}",
+                    error
+                )))
+            }
+        })
     }
 }
 
@@ -491,9 +568,9 @@ mod tests {
         ]);
         table.add_col(vec![Value::from(100.0), Value::Null, Value::from(150.0)]);
 
-        let batch = RecordBatch::from(&table);
+        let batch = RecordBatch::try_from(&table);
 
-        let new_table = ValueTable::from(&batch);
+        let new_table = ValueTable::from(&batch.unwrap());
 
         assert_eq!(table.headers, new_table.headers);
         assert!(table
