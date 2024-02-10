@@ -7,6 +7,6 @@ members = [
     "storage",
     "valu3/valu3",
     "valu3/valu3_derive",
-    "valu3/valu3_parket",
+    "valu3/valu3_parquet",
 ]
 resolver = "2"

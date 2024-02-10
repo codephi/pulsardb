@@ -3,5 +3,9 @@
         "./core/Cargo.toml",
         "./core/Cargo.toml",
         "./core/Cargo.toml"
+    ],
+    "cSpell.words": [
+        "prettytable",
+        "valu"
     ]
 }
