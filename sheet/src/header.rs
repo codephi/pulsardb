@@ -1,7 +1,6 @@
 use byteorder::ReadBytesExt;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::Iter;
 
 use crate::{
     th, Error, DATA_TYPE_BOOLEAN, DATA_TYPE_F32, DATA_TYPE_F64, DATA_TYPE_I128, DATA_TYPE_I16,
@@ -29,6 +28,12 @@ pub enum DataType {
     F32,
     F64,
     Undefined,
+}
+
+impl DataType {
+    pub fn is_dynamic_size(&self) -> bool {
+        matches!(self, DataType::Text)
+    }
 }
 
 impl Into<u8> for DataType {
@@ -79,7 +84,7 @@ impl From<u8> for DataType {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PropertyHeader {
     pub(crate) data_type: DataType,
     pub(crate) label: Vec<u8>,
@@ -120,16 +125,62 @@ impl PropertyHeader {
     }
 }
 
-/// Header struct
+#[derive(Debug)]
+pub(crate) struct BuilderHeader {
+    headers: Vec<PropertyHeader>,
+    headers_dynamic_size: Vec<PropertyHeader>,
+    is_dynamic_size: bool,
+    sizes: Vec<usize>,
+}
+
+impl BuilderHeader {
+    pub fn new() -> Self {
+        Self {
+            headers: Vec::new(),
+            headers_dynamic_size: Vec::new(),
+            is_dynamic_size: false,
+            sizes: Vec::new(),
+        }
+    }
+
+    pub fn add(&mut self, label: Vec<u8>, data_type: DataType) {
+        let is_dynamic_size = data_type.is_dynamic_size();
+        let prop = PropertyHeader::new(label, self.headers.len(), data_type);
+
+        self.sizes.push(prop.default_size());
+
+        if is_dynamic_size {
+            if !self.is_dynamic_size {
+                self.is_dynamic_size = true;
+            }
+
+            self.headers_dynamic_size.push(prop);
+        } else {
+            self.headers.push(prop);
+        }
+    }
+
+    pub fn build(&mut self) -> Header {
+        self.headers.append(&mut self.headers_dynamic_size);
+        self.headers_dynamic_size.clear();
+
+        Header {
+            headers: self.headers.clone(),
+            sizes: self.sizes.clone(),
+            is_dynamic_size: self.is_dynamic_size,
+        }
+    }
+}
+
+
+/// BuilderHeader struct
 /// # Example
 /// ```
-/// let properties = vec![
-///     PropertyHeader::from((DataType::I32, "age")),
-///     PropertyHeader::from((DataType::Varchar(10), "name")),
-///     PropertyHeader::from((DataType::F64, "height")),
-///   ];
-///
-/// let header = Header::from(properties);
+/// let builder = Header::from(vec![
+///     ("age", DataType::I32),
+///     ("name", DataType::Varchar(10)),
+///     ("height", DataType::F64),
+///   ]);
 /// ```
 #[derive(Debug, PartialEq)]
 pub struct Header {
@@ -147,20 +198,8 @@ impl Header {
         }
     }
 
-    pub fn headers_iter(&self) -> std::slice::Iter<'_, PropertyHeader>  {
+    pub fn headers_iter(&self) -> std::slice::Iter<'_, PropertyHeader> {
         self.headers.iter()
-    }
-
-    pub fn add_property(&mut self, data_type: DataType, label: &str) {
-        let property =
-            PropertyHeader::new(label.as_bytes().to_vec(), self.headers.len(), data_type);
-        self.add(property);
-    }
-
-    pub fn add(&mut self, property: PropertyHeader) {
-        let size = property.default_size();
-        self.headers.push(property);
-        self.sizes.push(size);
     }
 
     pub fn get(&self, index: usize) -> Option<&PropertyHeader> {
@@ -168,54 +207,15 @@ impl Header {
     }
 }
 
-impl From<Vec<PropertyHeader>> for Header {
-    fn from(headers: Vec<PropertyHeader>) -> Self {
-        let mut is_dynamic_size = false;
-
-        let sizes = headers
-            .iter()
-            .map(|prop| {
-                if !is_dynamic_size && prop.data_type == DataType::Text {
-                    is_dynamic_size = true;
-                }
-
-                prop.default_size()
-            })
-            .collect();
-
-        Header {
-            headers,
-            sizes,
-            is_dynamic_size,
-        }
-    }
-}
-
 impl From<Vec<(&str, DataType)>> for Header {
     fn from(headers: Vec<(&str, DataType)>) -> Self {
-        let mut sizes = Vec::new();
-        let mut is_dynamic_size = false;
+        let mut buidler = BuilderHeader::new();
 
-        let headers = headers
-            .iter()
-            .enumerate()
-            .map(|(index, (label, data_type))| {
-                let prop = PropertyHeader::new(label.as_bytes().to_vec(), index, data_type.clone());
-                sizes.push(prop.default_size());
+        headers.iter().for_each(|(label, data_type)| {
+            buidler.add(label.as_bytes().to_vec(), data_type.clone())
+        });
 
-                if !is_dynamic_size && data_type == &DataType::Text {
-                    is_dynamic_size = true;
-                }
-
-                prop
-            })
-            .collect();
-
-        Header {
-            headers,
-            sizes,
-            is_dynamic_size,
-        }
+        buidler.build()
     }
 }
 
@@ -223,18 +223,18 @@ impl From<Vec<(&str, DataType)>> for Header {
 /// # Example
 /// ```
 /// let buffer_writer = &mut BufWriter::new(File::create("header.bin").unwrap());
-/// let properties = vec![
-///     PropertyHeader::from((DataType::I32, "age")),
-///     PropertyHeader::from((DataType::Varchar(10), "name")),
-///     PropertyHeader::from((DataType::F64, "height")),
-///   ];
-///   write_header(buffer_writer, &properties).unwrap();
+/// let header = Header::from(vec![
+///     ("name", DataType::Varchar(10)),
+///     ("age", DataType::I32),
+///     ("height", DataType::F64),
+///   ]);
+///   write_header(buffer_writer, &header).unwrap();
 /// ```
 /// Header pattern:
 /// | data_type | label_size | label | data_type | label_size | label |
 // TODO: determitar tamanho fixo para a label
-pub fn write_header(buffer_writer: &mut BufWriter<File>, properties: &Header) -> Result<(), Error> {
-    for prop in properties.headers.iter() {
+pub fn write_header(buffer_writer: &mut BufWriter<File>, header: &Header) -> Result<(), Error> {
+    for prop in header.headers_iter() {
         let data_type_byte = prop.data_type.clone().into();
         // Write data type
         th!(buffer_writer.write_all(&[data_type_byte]), Error::Io);
@@ -262,7 +262,7 @@ pub fn write_header(buffer_writer: &mut BufWriter<File>, properties: &Header) ->
 /// let properties = read_header(buffer_reader).unwrap();
 /// ```
 pub fn read_header(buffer: &mut BufReader<File>) -> Result<Header, Error> {
-    let mut properties = Vec::new();
+    let mut builder = BuilderHeader::new();
 
     while let Ok(data_type_byte) = buffer.read_u8() {
         let data_type = {
@@ -284,14 +284,10 @@ pub fn read_header(buffer: &mut BufReader<File>) -> Result<Header, Error> {
 
         th!(buffer.read_exact(&mut label_bytes), Error::Io);
 
-        properties.push(PropertyHeader::new(
-            label_bytes,
-            properties.len(),
-            data_type,
-        ));
+        builder.add(label_bytes, data_type);
     }
 
-    Ok(Header::from(properties))
+    Ok(builder.build())
 }
 
 #[cfg(test)]
@@ -324,7 +320,3 @@ mod tests {
         fs::remove_file("header.bin").unwrap();
     }
 }
-
-// FGTS/{cpf}/{create_at}.bin
-// [Varchar(30), "cpf", Varchar(30), "create_at"]
-// 3cpf3create_at
