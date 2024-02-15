@@ -125,8 +125,17 @@ impl PropertyHeader {
     }
 }
 
+/// BuilderHeader struct
+/// # Example
+/// ```
+/// let builder = BuilderHeader::new();
+/// builder.add("age", DataType::I32);
+/// builder.add("name", DataType::Varchar(10));
+/// builder.add("height", DataType::F64);
+/// let header = builder.build();
+/// ```
 #[derive(Debug)]
-pub(crate) struct BuilderHeader {
+pub struct BuilderHeader {
     headers: Vec<PropertyHeader>,
     headers_dynamic_size: Vec<PropertyHeader>,
     is_dynamic_size: bool,
