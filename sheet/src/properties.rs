@@ -1,9 +1,9 @@
 use byteorder::ReadBytesExt;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 
 use crate::header::{DataType, Header};
-use crate::{th, Error, FALSE_BIN_VALUE, NULL_BIN_VALUE, TRUE_BIN_VALUE};
+use crate::{th, th_none, Error, FALSE_BIN_VALUE, NULL_BIN_VALUE, TRUE_BIN_VALUE};
 
 #[derive(Debug, PartialEq)]
 pub enum DataValue {
@@ -87,6 +87,8 @@ macro_rules! read_data {
 /// write_properties(buffer_writer, &header, &values).unwrap();
 /// buffer_writer.flush().unwrap();
 /// ```
+/// Properties pattern:
+/// | data_type (only Text) | value | data_type (only Text) | value | ...
 pub fn write_properties(
     buffer_writer: &mut BufWriter<File>,
     header: &Header,
@@ -105,7 +107,7 @@ pub fn write_properties(
                 );
             }
             DataValue::String(data) => {
-                let prop = &header[index];
+                let prop = &th_none!(header.get(index), Error::WriteProperties);
                 match prop.data_type {
                     DataType::Varchar(size) => {
                         if data.len() > size as usize {
@@ -128,40 +130,100 @@ pub fn write_properties(
                 }
             }
             DataValue::U8(data) => {
-                write_data!(buffer_writer, data, header[index], U8);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    U8
+                );
             }
             DataValue::U16(data) => {
-                write_data!(buffer_writer, data, header[index], U16);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    U16
+                );
             }
             DataValue::U32(data) => {
-                write_data!(buffer_writer, data, header[index], U32);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    U32
+                );
             }
             DataValue::U64(data) => {
-                write_data!(buffer_writer, data, header[index], U64);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    U64
+                );
             }
             DataValue::U128(data) => {
-                write_data!(buffer_writer, data, header[index], U128);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    U128
+                );
             }
             DataValue::I8(data) => {
-                write_data!(buffer_writer, data, header[index], I8);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    I8
+                );
             }
             DataValue::I16(data) => {
-                write_data!(buffer_writer, data, header[index], I16);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    I16
+                );
             }
             DataValue::I32(data) => {
-                write_data!(buffer_writer, data, header[index], I32);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    I32
+                );
             }
             DataValue::I64(data) => {
-                write_data!(buffer_writer, data, header[index], I64);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    I64
+                );
             }
             DataValue::I128(data) => {
-                write_data!(buffer_writer, data, header[index], I128);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    I128
+                );
             }
             DataValue::F32(data) => {
-                write_data!(buffer_writer, data, header[index], F32);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    F32
+                );
             }
             DataValue::F64(data) => {
-                write_data!(buffer_writer, data, header[index], F64);
+                write_data!(
+                    buffer_writer,
+                    data,
+                    th_none!(header.get(index), Error::NumberParse),
+                    F64
+                );
             }
             DataValue::Null => {
                 th!(buffer_writer.write_all(&[NULL_BIN_VALUE]), Error::Io);
@@ -218,7 +280,7 @@ pub fn read_properties(
 ) -> Result<Vec<DataValue>, Error> {
     let mut values = Vec::new();
 
-    for prop in header {
+    for prop in header.headers_iter() {
         let value = match prop.data_type {
             DataType::Varchar(size) => {
                 let mut buffer = vec![0u8; size as usize];
@@ -233,7 +295,7 @@ pub fn read_properties(
                     Error::Io
                 ) as usize;
 
-                let mut buffer = vec![0; size];
+                let mut buffer = vec![0u8; size];
 
                 th!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
@@ -279,30 +341,27 @@ pub fn read_properties(
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
-    use crate::header::PropertyHeader;
-
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_write_and_read_properties() {
-        let header = vec![
-            PropertyHeader::from(("varchar", DataType::Varchar(30))),
-            PropertyHeader::from(("boolean", DataType::Boolean)),
-            PropertyHeader::from(("text", DataType::Text)),
-            PropertyHeader::from(("i8", DataType::I8)),
-            PropertyHeader::from(("i16", DataType::I16)),
-            PropertyHeader::from(("i32", DataType::I32)),
-            PropertyHeader::from(("i64", DataType::I64)),
-            PropertyHeader::from(("i128", DataType::I128)),
-            PropertyHeader::from(("u8", DataType::U8)),
-            PropertyHeader::from(("u16", DataType::U16)),
-            PropertyHeader::from(("u32", DataType::U32)),
-            PropertyHeader::from(("u64", DataType::U64)),
-            PropertyHeader::from(("f32", DataType::F32)),
-            PropertyHeader::from(("f64", DataType::F64)),
-        ];
+        let header = Header::from(vec![
+            ("varchar", DataType::Varchar(30)),
+            ("boolean", DataType::Boolean),
+            ("text", DataType::Text),
+            ("i8", DataType::I8),
+            ("i16", DataType::I16),
+            ("i32", DataType::I32),
+            ("i64", DataType::I64),
+            ("i128", DataType::I128),
+            ("u8", DataType::U8),
+            ("u16", DataType::U16),
+            ("u32", DataType::U32),
+            ("u64", DataType::U64),
+            ("f32", DataType::F32),
+            ("f64", DataType::F64),
+        ]);
 
         let values = vec![
             DataValue::String(format!("{: <30}", "varchar")),
@@ -337,3 +396,139 @@ mod tests {
         fs::remove_file("values.bin").unwrap();
     }
 }
+
+/*
+ let json_example = json!({
+    "profile": {
+        "name": "John Doe",
+        "age": 30,
+        "height": 1.80,
+        "is_student": false,
+        "address": {
+            "city": "New York",
+            "state": "NY",
+            "country": "USA"
+        }
+    },
+    "products": [
+        {
+            "name": "product 1",
+            "price": 10.0,
+            "quantity": 2,
+            "description": "description",
+            "images": [
+                {
+                    "url": "http://example.com/image1.jpg",
+                    "description": "image 1"
+                },
+                {
+                    "url": "http://example.com/image2.jpg",
+                    "description": "image 2"
+                }
+            ]
+        },
+        {
+            "name": "product 2",
+            "price": 20.0,
+            "quantity": 1
+        }
+    ],
+ })
+
+    let header = vec![
+        PropertyHeader::from(("profile$name", DataType::Varchar(30))),
+        PropertyHeader::from(("profile$age", DataType::U8)),
+        PropertyHeader::from(("profile$height", DataType::F64)),
+        PropertyHeader::from(("profile$is_student", DataType::Boolean)),
+        PropertyHeader::from(("profile$address$city", DataType::Varchar(30))),
+        PropertyHeader::from(("profile$address$state", DataType::Varchar(30))),
+        PropertyHeader::from(("profile$address$country", DataType::Varchar(30))),
+        PropertyHeader::from(("products$0$name", DataType::Varchar(30))),
+        PropertyHeader::from(("products$0$price", DataType::F64)),
+        PropertyHeader::from(("products$0$quantity", DataType::U8)),
+        PropertyHeader::from(("products$0$images$0$url", DataType::Varchar(30))),
+        PropertyHeader::from(("products$0$images$0$description", DataType::Varchar(30))),
+        PropertyHeader::from(("products$0$images$1$url", DataType::Varchar(30))),
+        PropertyHeader::from(("products$0$images$1$description", DataType::Varchar(30))),
+        PropertyHeader::from(("products$1$name", DataType::Varchar(30))),
+        PropertyHeader::from(("products$1$price", DataType::F64)),
+        PropertyHeader::from(("products$1$quantity", DataType::U8)),
+    ];
+
+    let typed_json = json!({
+        {
+            "profile": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "age": {
+                        "type": "number"
+                    },
+                    "height": {
+                        "type": "number"
+                    },
+                    "is_student": {
+                        "type": "boolean"
+                    },
+                    "address": {
+                        "type": "object",
+                        "properties": {
+                            "city": {
+                                "type": "string",
+                                "length": 30
+                            },
+                            "state": {
+                                "type": "string",
+                                "length": 30
+                            },
+                            "country": {
+                                "type": "string",
+                                "length": 30
+                            }
+                        }
+                    }
+                }
+            },
+            "products": {
+                "type": "array",
+                "length": 10,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "length": 30
+                        },
+                        "price": {
+                            "type": "number",
+                            "length": "f32"
+                        },
+                        "quantity": {
+                            "type": "number",
+                            "length": "u8"
+                        },
+                        "description": {
+                            "type": "string"
+                        },
+                        "images": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "url": {
+                                        "type": "string"
+                                    },
+                                    "description": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    })
+*/

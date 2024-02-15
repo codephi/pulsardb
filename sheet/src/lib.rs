@@ -36,4 +36,6 @@ pub enum Error {
     ReadInvalidDataType,
     VarcharSize,
     NumberParse,
+    WriteProperties,
+    WriteHeader,
 }

@@ -1,6 +1,7 @@
 use byteorder::ReadBytesExt;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
+use std::path::Iter;
 
 use crate::{
     th, Error, DATA_TYPE_BOOLEAN, DATA_TYPE_F32, DATA_TYPE_F64, DATA_TYPE_I128, DATA_TYPE_I16,
@@ -82,28 +83,21 @@ impl From<u8> for DataType {
 pub struct PropertyHeader {
     pub(crate) data_type: DataType,
     pub(crate) label: Vec<u8>,
+    pub(crate) order: usize,
 }
 
-impl From<(DataType, &str)> for PropertyHeader {
-    fn from((data_type, label): (DataType, &str)) -> Self {
+impl PropertyHeader {
+    pub fn new(label: Vec<u8>, order: usize, data_type: DataType) -> Self {
         PropertyHeader {
             data_type,
             label: label.into(),
-        }
-    }
-}
-
-impl From<(&str, DataType)> for PropertyHeader {
-    fn from((label, data_type): (&str, DataType)) -> Self {
-        PropertyHeader {
-            data_type,
-            label: label.into(),
+            order,
         }
     }
 }
 
 impl PropertyHeader {
-    pub fn size(&self) -> usize {
+    pub fn default_size(&self) -> usize {
         match self.data_type {
             DataType::Varchar(size) => size as usize,
             DataType::Boolean => 1,
@@ -126,7 +120,104 @@ impl PropertyHeader {
     }
 }
 
-pub type Header = Vec<PropertyHeader>;
+/// Header struct
+/// # Example
+/// ```
+/// let properties = vec![
+///     PropertyHeader::from((DataType::I32, "age")),
+///     PropertyHeader::from((DataType::Varchar(10), "name")),
+///     PropertyHeader::from((DataType::F64, "height")),
+///   ];
+///
+/// let header = Header::from(properties);
+/// ```
+#[derive(Debug, PartialEq)]
+pub struct Header {
+    headers: Vec<PropertyHeader>,
+    sizes: Vec<usize>,
+    is_dynamic_size: bool,
+}
+
+impl Header {
+    pub fn new() -> Self {
+        Header {
+            headers: Vec::new(),
+            sizes: Vec::new(),
+            is_dynamic_size: false,
+        }
+    }
+
+    pub fn headers_iter(&self) -> std::slice::Iter<'_, PropertyHeader>  {
+        self.headers.iter()
+    }
+
+    pub fn add_property(&mut self, data_type: DataType, label: &str) {
+        let property =
+            PropertyHeader::new(label.as_bytes().to_vec(), self.headers.len(), data_type);
+        self.add(property);
+    }
+
+    pub fn add(&mut self, property: PropertyHeader) {
+        let size = property.default_size();
+        self.headers.push(property);
+        self.sizes.push(size);
+    }
+
+    pub fn get(&self, index: usize) -> Option<&PropertyHeader> {
+        self.headers.get(index)
+    }
+}
+
+impl From<Vec<PropertyHeader>> for Header {
+    fn from(headers: Vec<PropertyHeader>) -> Self {
+        let mut is_dynamic_size = false;
+
+        let sizes = headers
+            .iter()
+            .map(|prop| {
+                if !is_dynamic_size && prop.data_type == DataType::Text {
+                    is_dynamic_size = true;
+                }
+
+                prop.default_size()
+            })
+            .collect();
+
+        Header {
+            headers,
+            sizes,
+            is_dynamic_size,
+        }
+    }
+}
+
+impl From<Vec<(&str, DataType)>> for Header {
+    fn from(headers: Vec<(&str, DataType)>) -> Self {
+        let mut sizes = Vec::new();
+        let mut is_dynamic_size = false;
+
+        let headers = headers
+            .iter()
+            .enumerate()
+            .map(|(index, (label, data_type))| {
+                let prop = PropertyHeader::new(label.as_bytes().to_vec(), index, data_type.clone());
+                sizes.push(prop.default_size());
+
+                if !is_dynamic_size && data_type == &DataType::Text {
+                    is_dynamic_size = true;
+                }
+
+                prop
+            })
+            .collect();
+
+        Header {
+            headers,
+            sizes,
+            is_dynamic_size,
+        }
+    }
+}
 
 /// Write header to file
 /// # Example
@@ -139,8 +230,11 @@ pub type Header = Vec<PropertyHeader>;
 ///   ];
 ///   write_header(buffer_writer, &properties).unwrap();
 /// ```
-pub fn write_header(buffer_writer: &mut BufWriter<File>, properties: &Header) -> Result<(), Error> {    
-    for prop in properties {
+/// Header pattern:
+/// | data_type | label_size | label | data_type | label_size | label |
+// TODO: determitar tamanho fixo para a label
+pub fn write_header(buffer_writer: &mut BufWriter<File>, properties: &Header) -> Result<(), Error> {
+    for prop in properties.headers.iter() {
         let data_type_byte = prop.data_type.clone().into();
         // Write data type
         th!(buffer_writer.write_all(&[data_type_byte]), Error::Io);
@@ -190,13 +284,14 @@ pub fn read_header(buffer: &mut BufReader<File>) -> Result<Header, Error> {
 
         th!(buffer.read_exact(&mut label_bytes), Error::Io);
 
-        properties.push(PropertyHeader {
+        properties.push(PropertyHeader::new(
+            label_bytes,
+            properties.len(),
             data_type,
-            label: label_bytes,
-        });
+        ));
     }
 
-    Ok(properties)
+    Ok(Header::from(properties))
 }
 
 #[cfg(test)]
@@ -208,11 +303,11 @@ mod tests {
     #[test]
     fn test_write_and_reader_header() {
         let header_path = "header.bin";
-        let original_properties = vec![
-            PropertyHeader::from((DataType::I32, "age")),
-            PropertyHeader::from((DataType::Varchar(10), "name")),
-            PropertyHeader::from((DataType::F64, "height")),
-        ];
+        let original_properties = Header::from(vec![
+            ("name", DataType::Varchar(10)),
+            ("age", DataType::I32),
+            ("height", DataType::F64),
+        ]);
 
         let buffer_writer = &mut BufWriter::new(File::create(header_path).unwrap());
 
@@ -223,8 +318,13 @@ mod tests {
         let buffer_reader = &mut BufReader::new(File::open(header_path).unwrap());
 
         let properties = read_header(buffer_reader).unwrap();
+
         assert_eq!(properties, original_properties);
 
         fs::remove_file("header.bin").unwrap();
     }
 }
+
+// FGTS/{cpf}/{create_at}.bin
+// [Varchar(30), "cpf", Varchar(30), "create_at"]
+// 3cpf3create_at
