@@ -2,7 +2,9 @@
     "rust-analyzer.linkedProjects": [
         "./core/Cargo.toml",
         "./core/Cargo.toml",
-        "./core/Cargo.toml"
+        "./core/Cargo.toml",
+        "./valu3/valu3/Cargo.toml",
+        "./valu3/valu3/Cargo.toml"
     ],
     "cSpell.words": [
         "prettytable",
