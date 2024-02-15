@@ -2425,6 +2425,7 @@ name = "sheet"
 version = "0.1.0"
 dependencies = [
  "byteorder",
+ "valu3 0.4.5",
 ]
 
 [[package]]

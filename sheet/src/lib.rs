@@ -1,19 +1,28 @@
 use byteorder::ReadBytesExt;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, Cursor, Read, Write};
+use std::io::{self, BufReader, BufWriter, Read, Write};
+use valu3::prelude::*;
 
 const DATA_TYPE_UNDEFINED: u8 = 0;
 const DATA_TYPE_NULL: u8 = 1;
 const DATA_TYPE_BOOLEAN: u8 = 2;
 const DATA_TYPE_VARCHAR: u8 = 3;
 const DATA_TYPE_TEXT: u8 = 4;
-const DATA_TYPE_INTEGER_8: u8 = 5;
-const DATA_TYPE_INTEGER_16: u8 = 6;
-const DATA_TYPE_INTEGER_32: u8 = 7;
-const DATA_TYPE_INTEGER_64: u8 = 8;
-const DATA_TYPE_INTEGER_128: u8 = 9;
-const DATA_TYPE_FLOAT_32: u8 = 10;
-const DATA_TYPE_FLOAT_64: u8 = 11;
+
+const DATA_TYPE_U8: u8 = 5;
+const DATA_TYPE_U16: u8 = 6;
+const DATA_TYPE_U32: u8 = 7;
+const DATA_TYPE_U64: u8 = 8;
+const DATA_TYPE_U128: u8 = 9;
+
+const DATA_TYPE_I8: u8 = 10;
+const DATA_TYPE_I16: u8 = 11;
+const DATA_TYPE_I32: u8 = 12;
+const DATA_TYPE_I64: u8 = 13;
+const DATA_TYPE_I128: u8 = 14;
+
+const DATA_TYPE_F32: u8 = 15;
+const DATA_TYPE_F64: u8 = 16;
 
 const NULL_BIN_VALUE: u8 = 0;
 const FALSE_BIN_VALUE: u8 = 0;
@@ -25,6 +34,7 @@ pub enum Error {
     WriteInvalidDataType,
     ReadInvalidDataType,
     VarcharSize,
+    NumberParse,
 }
 
 // resolve!(File::create("file.bin"), Error::Io);
@@ -54,19 +64,33 @@ macro_rules! th {
     };
 }
 
+macro_rules! th_none {
+    ($result:expr, $error:expr) => {
+        match $result {
+            Some(value) => value,
+            None => return Err($error),
+        }
+    };
+}
+
 #[derive(Debug, PartialEq, Clone)]
 enum DataType {
     Null,
     Boolean,
     Text,
     Varchar(u32),
-    Integer8,
-    Integer16,
-    Integer32,
-    Integer64,
-    Integer128,
-    Float32,
-    Float64,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    F32,
+    F64,
     Undefined,
 }
 
@@ -77,14 +101,19 @@ impl Into<u8> for DataType {
             DataType::Boolean => DATA_TYPE_BOOLEAN,
             DataType::Text => DATA_TYPE_TEXT,
             DataType::Varchar(_) => DATA_TYPE_VARCHAR,
-            DataType::Integer8 => DATA_TYPE_INTEGER_8,
-            DataType::Integer16 => DATA_TYPE_INTEGER_16,
-            DataType::Integer32 => DATA_TYPE_INTEGER_32,
-            DataType::Integer64 => DATA_TYPE_INTEGER_64,
-            DataType::Integer128 => DATA_TYPE_INTEGER_128,
-            DataType::Float32 => DATA_TYPE_FLOAT_32,
-            DataType::Float64 => DATA_TYPE_FLOAT_64,
             DataType::Undefined => DATA_TYPE_UNDEFINED,
+            DataType::I8 => DATA_TYPE_I8,
+            DataType::I16 => DATA_TYPE_I16,
+            DataType::I32 => DATA_TYPE_I32,
+            DataType::I64 => DATA_TYPE_I64,
+            DataType::I128 => DATA_TYPE_I128,
+            DataType::U8 => DATA_TYPE_U8,
+            DataType::U16 => DATA_TYPE_U16,
+            DataType::U32 => DATA_TYPE_U32,
+            DataType::U64 => DATA_TYPE_U64,
+            DataType::U128 => DATA_TYPE_U128,
+            DataType::F32 => DATA_TYPE_F32,
+            DataType::F64 => DATA_TYPE_F64,
         }
     }
 }
@@ -96,13 +125,18 @@ impl From<u8> for DataType {
             DATA_TYPE_BOOLEAN => DataType::Boolean,
             DATA_TYPE_TEXT => DataType::Text,
             DATA_TYPE_VARCHAR => DataType::Varchar(0),
-            DATA_TYPE_INTEGER_8 => DataType::Integer8,
-            DATA_TYPE_INTEGER_16 => DataType::Integer16,
-            DATA_TYPE_INTEGER_32 => DataType::Integer32,
-            DATA_TYPE_INTEGER_64 => DataType::Integer64,
-            DATA_TYPE_INTEGER_128 => DataType::Integer128,
-            DATA_TYPE_FLOAT_32 => DataType::Float32,
-            DATA_TYPE_FLOAT_64 => DataType::Float64,
+            DATA_TYPE_I8 => DataType::I8,
+            DATA_TYPE_I16 => DataType::I16,
+            DATA_TYPE_I32 => DataType::I32,
+            DATA_TYPE_I64 => DataType::I64,
+            DATA_TYPE_I128 => DataType::I128,
+            DATA_TYPE_U8 => DataType::U8,
+            DATA_TYPE_U16 => DataType::U16,
+            DATA_TYPE_U32 => DataType::U32,
+            DATA_TYPE_U64 => DataType::U64,
+            DATA_TYPE_U128 => DataType::U128,
+            DATA_TYPE_F32 => DataType::F32,
+            DATA_TYPE_F64 => DataType::F64,
             _ => DataType::Undefined,
         }
     }
@@ -121,13 +155,19 @@ impl Property {
             DataType::Boolean => 1,
             DataType::Text => 0,
             DataType::Null => 0,
-            DataType::Integer8 => 1,
-            DataType::Integer16 => 2,
-            DataType::Integer32 => 4,
-            DataType::Integer64 => 8,
-            DataType::Integer128 => 16,
-            DataType::Float32 => 4,
-            DataType::Float64 => 8,
+            DataType::I8 => 1,
+            DataType::I16 => 2,
+            DataType::I32 => 4,
+            DataType::I64 => 8,
+            DataType::I128 => 16,
+            DataType::U8 => 1,
+            DataType::U16 => 2,
+            DataType::U32 => 4,
+            DataType::U64 => 8,
+            DataType::U128 => 16,
+            DataType::F32 => 4,
+            DataType::F64 => 8,
+            DataType::Undefined => 0,
             _ => 0,
         }
     }
@@ -135,7 +175,7 @@ impl Property {
 
 pub type Header = Vec<Property>;
 
-fn write_header(path: &str, properties: &Header) -> Result<(), Error> {
+pub fn write_header(path: &str, properties: &Header) -> Result<(), Error> {
     let mut file = BufWriter::new(th!(File::create(path), Error::Io));
 
     for prop in properties {
@@ -161,7 +201,7 @@ fn write_header(path: &str, properties: &Header) -> Result<(), Error> {
     Ok(())
 }
 
-fn read_header(path: &str) -> Result<Header, Error> {
+pub fn read_header(path: &str) -> Result<Header, Error> {
     let file = th!(File::open(path), Error::Io);
     let mut reader = BufReader::new(file);
     let mut properties = Vec::new();
@@ -194,15 +234,7 @@ fn read_header(path: &str) -> Result<Header, Error> {
     Ok(properties)
 }
 
-#[derive(Debug, PartialEq)]
-enum Value {
-    String(String),
-    Boolean(bool),
-    Numeric(String),
-    Null,
-}
-
-fn write_values(path: &str, header: &Header, values: &Vec<Value>) -> Result<(), Error> {
+pub fn write_values(path: &str, header: &Header, values: &Vec<Value>) -> Result<(), Error> {
     let mut file = BufWriter::new(th!(File::create(path), Error::Io));
 
     for (index, value) in values.iter().enumerate() {
@@ -240,56 +272,79 @@ fn write_values(path: &str, header: &Header, values: &Vec<Value>) -> Result<(), 
                     _ => return Err(Error::WriteInvalidDataType),
                 }
             }
-            Value::Numeric(data) => {
+            Value::Number(data) => {
                 let prop = &header[index];
                 match prop.data_type {
-                    DataType::Integer8 => {
-                        th!(
-                            file.write_all(&[data.parse::<i8>().unwrap() as u8]),
-                            Error::Io
-                        );
+                    DataType::I8 => {
+                        let value = th_none!(data.get_i8(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
                     }
-                    DataType::Integer16 => {
-                        th!(
-                            file.write_all(&data.parse::<i16>().unwrap().to_le_bytes()),
-                            Error::Io
-                        );
+                    DataType::I16 => {
+                        let value = th_none!(data.get_i16(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
                     }
-                    DataType::Integer32 => {
-                        th!(
-                            file.write_all(&data.parse::<i32>().unwrap().to_le_bytes()),
-                            Error::Io
-                        );
+                    DataType::I32 => {
+                        let value = th_none!(data.get_i32(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
                     }
-                    DataType::Integer64 => {
-                        th!(
-                            file.write_all(&data.parse::<i64>().unwrap().to_le_bytes()),
-                            Error::Io
-                        );
+                    DataType::I64 => {
+                        let value = th_none!(data.get_i64(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
                     }
-                    DataType::Integer128 => {
-                        th!(
-                            file.write_all(&data.parse::<i128>().unwrap().to_le_bytes()),
-                            Error::Io
-                        );
+                    DataType::I128 => {
+                        let value = th_none!(data.get_i128(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
                     }
-                    DataType::Float32 => {
-                        th!(
-                            file.write_all(&data.parse::<f32>().unwrap().to_le_bytes()),
-                            Error::Io
-                        );
+                    DataType::U8 => {
+                        let value = th_none!(data.get_u8(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
                     }
-                    DataType::Float64 => {
-                        th!(
-                            file.write_all(&data.parse::<f64>().unwrap().to_le_bytes()),
-                            Error::Io
-                        );
+                    DataType::U16 => {
+                        let value = th_none!(data.get_u16(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
+                    }
+                    DataType::U32 => {
+                        let value = th_none!(data.get_u32(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
+                    }
+                    DataType::U64 => {
+                        let value = th_none!(data.get_u64(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
+                    }
+                    DataType::U128 => {
+                        let value = th_none!(data.get_u128(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
+                    }
+                    DataType::F32 => {
+                        let value = th_none!(data.get_f32(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
+                    }
+                    DataType::F64 => {
+                        let value = th_none!(data.get_f64(), Error::NumberParse);
+                        th!(file.write_all(&value.to_le_bytes()), Error::Io);
                     }
                     _ => return Err(Error::WriteInvalidDataType),
                 }
             }
             Value::Null => {
                 th!(file.write_all(&[NULL_BIN_VALUE]), Error::Io);
+            }
+            Value::Array(_) | Value::Object(_) => {
+                let value_string = value.to_json(JsonMode::Inline);
+                let value_bytes = value_string.as_bytes();
+                th!(
+                    file.write_all(&(value_bytes.len() as u32).to_le_bytes()),
+                    Error::Io
+                );
+            }
+            Value::Undefined => return Err(Error::WriteInvalidDataType),
+            Value::DateTime(date) => {
+                let value = match date.timestamp() {
+                    Some(timestamp) => timestamp,
+                    None => return Err(Error::WriteInvalidDataType),
+                };
+
+                th!(file.write_all(&value.to_le_bytes()), Error::Io);
             }
         }
     }
@@ -309,15 +364,8 @@ pub fn read_values(path: &str, header: &Header) -> Result<Vec<Value>, Error> {
                 let mut buffer = vec![0u8; size as usize];
 
                 th!(reader.read_exact(&mut buffer), Error::Io);
-                
-                // remove null bytes
-                let buffer = buffer
-                    .iter()
-                    .take_while(|&&b| b != 0u8)
-                    .cloned()
-                    .collect::<Vec<u8>>();
 
-                Value::String(String::from_utf8(buffer).expect("UTF-8 decoding error"))
+                Value::from(String::from_utf8(buffer).expect("UTF-8 decoding error"))
             }
             DataType::Text => {
                 let size = th!(reader.read_u32::<byteorder::LittleEndian>(), Error::Io) as usize;
@@ -326,39 +374,59 @@ pub fn read_values(path: &str, header: &Header) -> Result<Vec<Value>, Error> {
 
                 th!(reader.read_exact(&mut buffer), Error::Io);
 
-                Value::String(String::from_utf8(buffer).expect("UTF-8 decoding error"))
+                Value::from(String::from_utf8(buffer).expect("UTF-8 decoding error"))
             }
             DataType::Boolean => {
                 let value = th!(reader.read_u8(), Error::Io);
                 Value::Boolean(value == 1)
             }
-            DataType::Integer8 => {
+            DataType::I8 => {
                 let value = th!(reader.read_i8(), Error::Io);
-                Value::Numeric(value.to_string())
+                Value::from(value)
             }
-            DataType::Integer16 => {
+            DataType::I16 => {
                 let value = th!(reader.read_i16::<byteorder::LittleEndian>(), Error::Io);
-                Value::Numeric(value.to_string())
+                Value::from(value)
             }
-            DataType::Integer32 => {
+            DataType::I32 => {
                 let value = th!(reader.read_i32::<byteorder::LittleEndian>(), Error::Io);
-                Value::Numeric(value.to_string())
+                Value::from(value)
             }
-            DataType::Integer64 => {
+            DataType::I64 => {
                 let value = th!(reader.read_i64::<byteorder::LittleEndian>(), Error::Io);
-                Value::Numeric(value.to_string())
+                Value::from(value)
             }
-            DataType::Integer128 => {
+            DataType::I128 => {
                 let value = th!(reader.read_i128::<byteorder::LittleEndian>(), Error::Io);
-                Value::Numeric(value.to_string())
+                Value::from(value)
             }
-            DataType::Float32 => {
+            DataType::U8 => {
+                let value = th!(reader.read_u8(), Error::Io);
+                Value::from(value)
+            }
+            DataType::U16 => {
+                let value = th!(reader.read_u16::<byteorder::LittleEndian>(), Error::Io);
+                Value::from(value)
+            }
+            DataType::U32 => {
+                let value = th!(reader.read_u32::<byteorder::LittleEndian>(), Error::Io);
+                Value::from(value)
+            }
+            DataType::U64 => {
+                let value = th!(reader.read_u64::<byteorder::LittleEndian>(), Error::Io);
+                Value::from(value)
+            }
+            DataType::U128 => {
+                let value = th!(reader.read_u128::<byteorder::LittleEndian>(), Error::Io);
+                Value::from(value)
+            }
+            DataType::F32 => {
                 let value = th!(reader.read_f32::<byteorder::LittleEndian>(), Error::Io);
-                Value::Numeric(value.to_string())
+                Value::from(value)
             }
-            DataType::Float64 => {
+            DataType::F64 => {
                 let value = th!(reader.read_f64::<byteorder::LittleEndian>(), Error::Io);
-                Value::Numeric(value.to_string())
+                Value::from(value)
             }
             DataType::Null => Value::Null,
             _ => return Err(Error::ReadInvalidDataType),
@@ -385,7 +453,7 @@ mod tests {
                 label: "name".to_string(),
             },
             Property {
-                data_type: DataType::Integer32,
+                data_type: DataType::I32,
                 label: "age".to_string(),
             },
             Property {
@@ -407,22 +475,77 @@ mod tests {
         let header = vec![
             Property {
                 data_type: DataType::Varchar(30),
-                label: "name".to_string(),
-            },
-            Property {
-                data_type: DataType::Integer32,
-                label: "age".to_string(),
+                label: "varchar".to_string(),
             },
             Property {
                 data_type: DataType::Boolean,
-                label: "active".to_string(),
+                label: "boolean".to_string(),
+            },
+            Property {
+                data_type: DataType::Text,
+                label: "text".to_string(),
+            },
+            Property {
+                data_type: DataType::I8,
+                label: "i8".to_string(),
+            },
+            Property {
+                data_type: DataType::I16,
+                label: "i16".to_string(),
+            },
+            Property {
+                data_type: DataType::I32,
+                label: "i32".to_string(),
+            },
+            Property {
+                data_type: DataType::I64,
+                label: "i64".to_string(),
+            },
+            Property {
+                data_type: DataType::I128,
+                label: "i128".to_string(),
+            },
+            Property {
+                data_type: DataType::U8,
+                label: "u8".to_string(),
+            },
+            Property {
+                data_type: DataType::U16,
+                label: "u16".to_string(),
+            },
+            Property {
+                data_type: DataType::U32,
+                label: "u32".to_string(),
+            },
+            Property {
+                data_type: DataType::U64,
+                label: "u64".to_string(),
+            },
+            Property {
+                data_type: DataType::F32,
+                label: "f32".to_string(),
+            },
+            Property {
+                data_type: DataType::F64,
+                label: "f64".to_string(),
             },
         ];
 
         let values = vec![
-            Value::String("John Doe".to_string()),
-            Value::Numeric("30".to_string()),
-            Value::Boolean(true),
+            Value::from(format!("{: <30}", "varchar")),
+            Value::from(true),
+            Value::from("text".to_string()),
+            Value::from(-1 as i8),
+            Value::from(-2 as i16),
+            Value::from(-3 as i32),
+            Value::from(-4 as i64),
+            Value::from(-5 as i128),
+            Value::from(1 as u8),
+            Value::from(2 as u16),
+            Value::from(3 as u32),
+            Value::from(4 as u64),
+            Value::from(1.0 as f32),
+            Value::from(2.0 as f64),
         ];
 
         write_values("values.bin", &header, &values).unwrap();
