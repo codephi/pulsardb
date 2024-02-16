@@ -1,4 +1,3 @@
-
 // resolve!(File::create("file.bin"), Error::Io);
 // compile:
 // match File::create("file.bin") {
@@ -8,7 +7,7 @@
 /// Macro to handle Result and return a custom error
 /// # Example
 /// ```
-/// let file = th!(File::create("file.bin"), Error::Io);
+/// let file = th_err!(File::create("file.bin"), Error::Io);
 /// ```
 /// # Expands to
 /// ```
@@ -18,11 +17,21 @@
 /// }
 /// ```
 #[macro_export]
-macro_rules! th {
+macro_rules! th_msg {
     ($result:expr, $error:expr) => {
         match $result {
             Ok(value) => value,
             Err(e) => return Err($error(e)),
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! th {
+    ($result:expr, $error:expr) => {
+        match $result {
+            Ok(value) => value,
+            Err(_) => return Err($error),
         }
     };
 }

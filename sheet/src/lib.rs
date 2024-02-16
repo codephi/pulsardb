@@ -33,11 +33,15 @@ pub const TRUE_BIN_VALUE: u8 = 1;
 pub enum Error {
     Io(io::Error),
     WriteInvalidDataType,
+    WriteInvalidDataTypeNumber,
+    WriteInvalidDataTypeString(String),
     ReadInvalidDataType,
     VarcharSize,
     NumberParse,
     WriteProperties,
+    WritePropertiesGetHeader,
     WriteHeader,
+    LabelNotFound,
 }
 
 
