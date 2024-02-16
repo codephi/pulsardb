@@ -58,6 +58,7 @@ pub enum Error {
     WritePropertiesGetHeader,
     WriteHeader,
     LabelNotFound,
+    NoGetBytePosition,
 }
 
 /*

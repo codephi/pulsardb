@@ -122,6 +122,7 @@ pub struct PropertyHeader {
     label: Vec<u8>,
     position: usize,
     original_position: usize,
+    byte_position: Option<usize>,
 }
 
 impl PropertyHeader {
@@ -136,11 +137,16 @@ impl PropertyHeader {
             label: label.into(),
             position,
             original_position,
+            byte_position: None,
         }
     }
 
     pub fn update_position(&mut self, position: usize) {
         self.position = position;
+    }
+
+    pub fn update_byte_position(&mut self, byte_position: usize) {
+        self.byte_position = Some(byte_position);
     }
 
     pub fn is_dynamic_size(&self) -> bool {
@@ -149,6 +155,10 @@ impl PropertyHeader {
 
     pub fn get_position(&self) -> usize {
         self.position
+    }
+
+    pub fn get_byte_position(&self) -> Option<usize> {
+        self.byte_position
     }
 
     pub fn get_original_position(&self) -> usize {
@@ -198,8 +208,7 @@ pub struct BuilderHeader {
     headers: Vec<PropertyHeader>,
     headers_dynamic_size: Vec<PropertyHeader>,
     is_dynamic_size: bool,
-    positions: Vec<usize>,
-    next_position: usize,
+    next_byte_position: usize,
 }
 
 impl BuilderHeader {
@@ -209,8 +218,7 @@ impl BuilderHeader {
             headers: Vec::new(),
             headers_dynamic_size: Vec::new(),
             is_dynamic_size: false,
-            positions: Vec::new(),
-            next_position: 0,
+            next_byte_position: 0,
         }
     }
 
@@ -228,7 +236,8 @@ impl BuilderHeader {
                 self.headers_dynamic_size.len() + self.headers.len(),
             )
         };
-        let prop = PropertyHeader::new(label, position, original_position, data_type);
+
+        let mut prop = PropertyHeader::new(label, position, original_position, data_type);
 
         if is_dynamic_size {
             if !self.is_dynamic_size {
@@ -237,8 +246,9 @@ impl BuilderHeader {
 
             self.headers_dynamic_size.push(prop);
         } else {
-            self.positions.push(self.next_position);
-            self.next_position += prop.default_size() + 1;
+            prop.update_byte_position(self.next_byte_position);
+
+            self.next_byte_position += prop.default_size() + 1;
 
             self.headers.push(prop);
         }
@@ -261,8 +271,8 @@ impl BuilderHeader {
 
         Header {
             headers,
-            positions: self.positions.clone(),
             is_dynamic_size: self.is_dynamic_size,
+            last_byte_position_no_dynamic: self.next_byte_position,
         }
     }
 }
@@ -279,8 +289,8 @@ impl BuilderHeader {
 #[derive(Debug)]
 pub struct Header {
     headers: Vec<PropertyHeader>,
-    positions: Vec<usize>,
     is_dynamic_size: bool,
+    last_byte_position_no_dynamic: usize,
 }
 
 impl Header {
@@ -288,8 +298,8 @@ impl Header {
     pub fn new() -> Self {
         Header {
             headers: Vec::new(),
-            positions: Vec::new(),
             is_dynamic_size: false,
+            last_byte_position_no_dynamic: 0,
         }
     }
 
@@ -307,12 +317,14 @@ impl Header {
         self.headers.get(index)
     }
 
+    /// Get the size of the header
     pub fn get_by_original_position(&self, original_position: usize) -> Option<&PropertyHeader> {
         self.headers
             .iter()
             .find(|prop| prop.get_original_position() == original_position)
     }
 
+    /// Get the size of the header
     pub fn get_by_label(&self, label: &[u8]) -> Result<&PropertyHeader, Error> {
         match self.headers.iter().find(|prop| prop.label == label) {
             Some(prop) => Ok(prop),
@@ -320,6 +332,7 @@ impl Header {
         }
     }
 
+    /// Write header to file
     pub fn write(&mut self, path: &str) -> Result<(), Error> {
         let headers = self.headers_iter();
         let mut buffer_writer = BufWriter::new(File::create(path).unwrap());
@@ -333,23 +346,31 @@ impl Header {
         Ok(())
     }
 
+    /// Read header from file
     pub fn read(&mut self, path: &str) -> Result<(), Error> {
         let mut buffer_reader = BufReader::new(File::open(path).unwrap());
 
         self.headers = read_header(&mut buffer_reader)?;
 
-        let mut next_position = 0;
+        let mut is_dynamic_size = false;
 
-        for prop in self.headers.iter_mut() {
-            if prop.is_dynamic_size() {
-                if !self.is_dynamic_size {
-                    self.is_dynamic_size = true;
+        self.last_byte_position_no_dynamic = self
+            .headers
+            .iter()
+            .map(|prop| {
+                if prop.is_dynamic_size() {
+                    if !is_dynamic_size {
+                        is_dynamic_size = true;
+                    }
+
+                    return 0;
                 }
-            } else {
-                self.positions.push(next_position);
-                next_position += prop.default_size() + 1;
-            }
-        }
+
+                prop.get_byte_position().unwrap_or(0)
+            })
+            .sum();
+
+        self.is_dynamic_size = is_dynamic_size;
 
         Ok(())
     }
@@ -566,14 +587,20 @@ mod tests {
     }
 
     #[test]
-    fn test_position() {
+    fn test_bytes_position() {
         let header = Header::from(vec![
             ("varchar", DataType::Varchar(10)),
             ("text", DataType::Text),
             ("i32", DataType::I32),
             ("boolean", DataType::Boolean),
         ]);
-        
-        assert_eq!(header.positions, vec![0, 11, DEFAULT_SIZE_I32 + 12]);
+
+        assert_eq!(header.headers.get(0).unwrap().get_byte_position(), Some(0));
+        assert_eq!(header.headers.get(1).unwrap().get_byte_position(), Some(11));
+        assert_eq!(
+            header.headers.get(2).unwrap().get_byte_position(),
+            Some(DEFAULT_SIZE_I32 + 12)
+        );
+        assert_eq!(header.headers.get(3).unwrap().get_byte_position(), None);
     }
 }
