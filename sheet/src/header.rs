@@ -390,6 +390,12 @@ pub fn write_header(
 ) -> Result<(), Error> {
     for prop in headers {
         let data_type_byte = prop.data_type.clone().into();
+        // Write original position
+        th_msg!(
+            buffer_writer.write_all(&(prop.original_position as u32).to_le_bytes()),
+            Error::Io
+        );
+
         // Write data type
         th_msg!(buffer_writer.write_all(&[data_type_byte]), Error::Io);
 
@@ -418,21 +424,20 @@ pub fn write_header(
 pub fn read_header(buffer_reader: &mut BufReader<File>) -> Result<Vec<PropertyHeader>, Error> {
     let mut properties = Vec::new();
 
-    while let Ok(data_type_byte) = buffer_reader.read_u8() {
-        let data_type = {
-            if data_type_byte == DATA_TYPE_UNDEFINED {
-                return Err(Error::ReadInvalidDataType);
-            }
+    while let Ok(original_position_byte) = buffer_reader.read_u32::<byteorder::LittleEndian>() {
+        let original_position = original_position_byte as usize;
+        let data_type_byte = th_msg!(buffer_reader.read_u8(), Error::Io);
 
-            if data_type_byte == DATA_TYPE_VARCHAR {
+        let data_type = match data_type_byte {
+            DATA_TYPE_VARCHAR => {
                 let size = th_msg!(
                     buffer_reader.read_u32::<byteorder::LittleEndian>(),
                     Error::Io
                 );
                 DataType::Varchar(size)
-            } else {
-                DataType::from(data_type_byte)
             }
+            DATA_TYPE_UNDEFINED => return Err(Error::ReadInvalidDataType),
+            _ => DataType::from(data_type_byte),
         };
 
         let label_size = th_msg!(
@@ -447,7 +452,7 @@ pub fn read_header(buffer_reader: &mut BufReader<File>) -> Result<Vec<PropertyHe
         properties.push(PropertyHeader::new(
             label_bytes,
             properties.len(),
-            properties.len(),
+            original_position,
             data_type,
         ));
     }
@@ -497,14 +502,14 @@ mod tests {
 
         let properties = read_header(buffer_reader).unwrap();
 
-        let original_properties_new_order = Header::from(vec![
-            ("varchar", DataType::Varchar(10)),
-            ("i32", DataType::I32),
-            ("f64", DataType::F64),
-            ("text", DataType::Text),
-        ]);
+        let original_properties_new_order = vec![
+            PropertyHeader::new("varchar".as_bytes().to_vec(), 0, 0, DataType::Varchar(10)),
+            PropertyHeader::new("i32".as_bytes().to_vec(), 1, 2, DataType::I32),
+            PropertyHeader::new("f64".as_bytes().to_vec(), 2, 3, DataType::F64),
+            PropertyHeader::new("text".as_bytes().to_vec(), 3, 1, DataType::Text),
+        ];
 
-        assert_eq!(properties, original_properties_new_order.headers);
+        assert_eq!(properties, original_properties_new_order);
 
         fs::remove_file("header.bin").unwrap();
     }
