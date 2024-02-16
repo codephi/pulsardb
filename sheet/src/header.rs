@@ -2,7 +2,10 @@ use crate::{
     th, th_msg, Error, DATA_TYPE_BOOLEAN, DATA_TYPE_F32, DATA_TYPE_F64, DATA_TYPE_I128,
     DATA_TYPE_I16, DATA_TYPE_I32, DATA_TYPE_I64, DATA_TYPE_I8, DATA_TYPE_NULL, DATA_TYPE_TEXT,
     DATA_TYPE_U128, DATA_TYPE_U16, DATA_TYPE_U32, DATA_TYPE_U64, DATA_TYPE_U8, DATA_TYPE_UNDEFINED,
-    DATA_TYPE_VARCHAR,
+    DATA_TYPE_VARCHAR, DEFAULT_SIZE_BOOLEAN, DEFAULT_SIZE_F32, DEFAULT_SIZE_F64, DEFAULT_SIZE_I128,
+    DEFAULT_SIZE_I16, DEFAULT_SIZE_I32, DEFAULT_SIZE_I64, DEFAULT_SIZE_I8, DEFAULT_SIZE_NULL,
+    DEFAULT_SIZE_TEXT, DEFAULT_SIZE_U128, DEFAULT_SIZE_U16, DEFAULT_SIZE_U32, DEFAULT_SIZE_U64,
+    DEFAULT_SIZE_U8, DEFAULT_SIZE_UNDEFINED,
 };
 use byteorder::ReadBytesExt;
 use core::fmt::Display;
@@ -161,22 +164,22 @@ impl PropertyHeader {
     pub fn default_size(&self) -> usize {
         match self.data_type {
             DataType::Varchar(size) => size as usize,
-            DataType::Boolean => 1,
-            DataType::Text => 0,
-            DataType::Null => 0,
-            DataType::I8 => 1,
-            DataType::I16 => 2,
-            DataType::I32 => 4,
-            DataType::I64 => 8,
-            DataType::I128 => 16,
-            DataType::U8 => 1,
-            DataType::U16 => 2,
-            DataType::U32 => 4,
-            DataType::U64 => 8,
-            DataType::U128 => 16,
-            DataType::F32 => 4,
-            DataType::F64 => 8,
-            DataType::Undefined => 0,
+            DataType::Boolean => DEFAULT_SIZE_BOOLEAN,
+            DataType::Text => DEFAULT_SIZE_TEXT,
+            DataType::Null => DEFAULT_SIZE_NULL,
+            DataType::I8 => DEFAULT_SIZE_I8,
+            DataType::I16 => DEFAULT_SIZE_I16,
+            DataType::I32 => DEFAULT_SIZE_I32,
+            DataType::I64 => DEFAULT_SIZE_I64,
+            DataType::I128 => DEFAULT_SIZE_I128,
+            DataType::U8 => DEFAULT_SIZE_U8,
+            DataType::U16 => DEFAULT_SIZE_U16,
+            DataType::U32 => DEFAULT_SIZE_U32,
+            DataType::U64 => DEFAULT_SIZE_U64,
+            DataType::U128 => DEFAULT_SIZE_U128,
+            DataType::F32 => DEFAULT_SIZE_F32,
+            DataType::F64 => DEFAULT_SIZE_F64,
+            DataType::Undefined => DEFAULT_SIZE_UNDEFINED,
         }
     }
 }
@@ -195,7 +198,8 @@ pub struct BuilderHeader {
     headers: Vec<PropertyHeader>,
     headers_dynamic_size: Vec<PropertyHeader>,
     is_dynamic_size: bool,
-    sizes: Vec<usize>,
+    positions: Vec<usize>,
+    next_position: usize,
 }
 
 impl BuilderHeader {
@@ -205,7 +209,8 @@ impl BuilderHeader {
             headers: Vec::new(),
             headers_dynamic_size: Vec::new(),
             is_dynamic_size: false,
-            sizes: Vec::new(),
+            positions: Vec::new(),
+            next_position: 0,
         }
     }
 
@@ -225,8 +230,6 @@ impl BuilderHeader {
         };
         let prop = PropertyHeader::new(label, position, original_position, data_type);
 
-        self.sizes.push(prop.default_size());
-
         if is_dynamic_size {
             if !self.is_dynamic_size {
                 self.is_dynamic_size = true;
@@ -234,6 +237,9 @@ impl BuilderHeader {
 
             self.headers_dynamic_size.push(prop);
         } else {
+            self.positions.push(self.next_position);
+            self.next_position += prop.default_size() + 1;
+
             self.headers.push(prop);
         }
     }
@@ -255,7 +261,7 @@ impl BuilderHeader {
 
         Header {
             headers,
-            sizes: self.sizes.clone(),
+            positions: self.positions.clone(),
             is_dynamic_size: self.is_dynamic_size,
         }
     }
@@ -273,7 +279,7 @@ impl BuilderHeader {
 #[derive(Debug)]
 pub struct Header {
     headers: Vec<PropertyHeader>,
-    sizes: Vec<usize>,
+    positions: Vec<usize>,
     is_dynamic_size: bool,
 }
 
@@ -282,7 +288,7 @@ impl Header {
     pub fn new() -> Self {
         Header {
             headers: Vec::new(),
-            sizes: Vec::new(),
+            positions: Vec::new(),
             is_dynamic_size: false,
         }
     }
@@ -328,22 +334,22 @@ impl Header {
     }
 
     pub fn read(&mut self, path: &str) -> Result<(), Error> {
-        let mut is_dynamic_size = self.is_dynamic_size;
         let mut buffer_reader = BufReader::new(File::open(path).unwrap());
 
         self.headers = read_header(&mut buffer_reader)?;
 
-        self.sizes = self
-            .headers
-            .iter()
-            .map(|prop| {
-                let size = prop.default_size();
-                if prop.is_dynamic_size() {
-                    is_dynamic_size = true;
+        let mut next_position = 0;
+
+        for prop in self.headers.iter_mut() {
+            if prop.is_dynamic_size() {
+                if !self.is_dynamic_size {
+                    self.is_dynamic_size = true;
                 }
-                size
-            })
-            .collect();
+            } else {
+                self.positions.push(next_position);
+                next_position += prop.default_size() + 1;
+            }
+        }
 
         Ok(())
     }
@@ -557,5 +563,17 @@ mod tests {
         assert_eq!(boolean_prop.get_original_position(), 3);
 
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_position() {
+        let header = Header::from(vec![
+            ("varchar", DataType::Varchar(10)),
+            ("text", DataType::Text),
+            ("i32", DataType::I32),
+            ("boolean", DataType::Boolean),
+        ]);
+        
+        assert_eq!(header.positions, vec![0, 11, DEFAULT_SIZE_I32 + 12]);
     }
 }

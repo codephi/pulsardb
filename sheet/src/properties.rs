@@ -113,6 +113,38 @@ impl<'a> BuilderData<'a> {
     }
 }
 
+/// Data struct
+/// # Example
+/// ```
+/// use std::fs;
+/// use sheet::{DataType, DataValue, Header, BuilderData};
+/// 
+/// let header = Header::from(vec![
+///   ("varchar", DataType::Varchar(30)),
+///   ("boolean", DataType::Boolean),
+///   ("text", DataType::Text),
+///   ("i8", DataType::I8),
+/// ]);
+/// 
+/// let values = vec![
+///   DataValue::String(format!("{: <30}", "varchar")),
+///   DataValue::Boolean(true),
+///   DataValue::String("text".to_string()),
+///   DataValue::I8(8),
+/// ];
+/// 
+/// let mut data = BuilderData::from_properties(&header, values).build();
+///
+/// let path = "test_data_struct.bin";
+/// 
+/// assert!(data.write(path).is_ok());
+/// 
+/// assert!(data.read(path).is_ok());
+/// 
+/// assert_eq!(values, *data.get_values());
+/// 
+/// fs::remove(path).unwrap();
+/// ```
 #[derive(Debug)]
 pub struct Data<'a> {
     header: &'a Header,

@@ -29,6 +29,22 @@ pub const NULL_BIN_VALUE: u8 = 0;
 pub const FALSE_BIN_VALUE: u8 = 0;
 pub const TRUE_BIN_VALUE: u8 = 1;
 
+pub const DEFAULT_SIZE_BOOLEAN: usize = 1;
+pub const DEFAULT_SIZE_TEXT: usize = 0;
+pub const DEFAULT_SIZE_NULL: usize = 0;
+pub const DEFAULT_SIZE_I8: usize = 1;
+pub const DEFAULT_SIZE_I16: usize = 2;
+pub const DEFAULT_SIZE_I32: usize = 4;
+pub const DEFAULT_SIZE_I64: usize = 8;
+pub const DEFAULT_SIZE_I128: usize = 16;
+pub const DEFAULT_SIZE_U8: usize = 1;
+pub const DEFAULT_SIZE_U16: usize = 2;
+pub const DEFAULT_SIZE_U32: usize = 4;
+pub const DEFAULT_SIZE_U64: usize = 8;
+pub const DEFAULT_SIZE_U128: usize = 16;
+pub const DEFAULT_SIZE_F32: usize = 4;
+pub const DEFAULT_SIZE_F64: usize = 8;
+pub const DEFAULT_SIZE_UNDEFINED: usize = 0;
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
@@ -43,7 +59,6 @@ pub enum Error {
     WriteHeader,
     LabelNotFound,
 }
-
 
 /*
  let json_example = json!({

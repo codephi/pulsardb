@@ -6,6 +6,8 @@ use valu3::prelude::*;
 use crate::header::{DataType, Header};
 use crate::{th, th_none, Error, FALSE_BIN_VALUE, NULL_BIN_VALUE, TRUE_BIN_VALUE};
 
+/// Represents the data types that can be stored in a property.
+/// The data types are used to serialize and deserialize the data.
 pub enum Data {
     Null,
     Boolean(bool),
@@ -47,6 +49,12 @@ macro_rules! read_data {
     };
 }
 
+/// Writes the properties data to a file.
+/// The data is serialized using the header and the values.
+/// The header is used to determine the data type of each property.
+/// The values are used to write the data to the file.
+/// The data is written in binary format.
+/// The data is written in the same order as the header.
 pub fn write_properties_data(path: &str, header: &Header, values: &Vec<Data>) -> Result<(), Error> {
     let mut file = BufWriter::new(th!(File::create(path), Error::Io));
 
@@ -131,6 +139,42 @@ pub fn write_properties_data(path: &str, header: &Header, values: &Vec<Data>) ->
     Ok(())
 }
 
+/// Reads the properties data from a file.
+/// The data is deserialized using the header.
+/// The header is used to determine the data type of each property.
+/// The data is read in binary format.
+/// The data is read in the same order as the header.
+/// The data is returned as a vector of Data.
+/// The data is returned in the same order as the header.
+/// # Example
+/// ```
+/// use sheet::properties_value::{read_properties_data, write_properties_data};
+/// use sheet::header::{DataType, Property};
+/// use sheet::Error;
+///
+/// fn main() -> Result<(), Error> {
+///     let header = vec![
+///         Property {
+///             data_type: DataType::Varchar(30),
+///             label: "varchar".to_string(),
+///         },
+///         Property {
+///             data_type: DataType::Boolean,
+///             label: "boolean".to_string(),
+///         },
+///         Property {
+///             data_type: DataType::Text,
+///             label: "text".to_string(),
+///         },
+///     };
+/// 
+///    let values = vec![
+///       Data::String("varchar".to_string()),
+///       Data::Boolean(true),
+///       Data::String("text".to_string()),
+///    ];
+/// 
+///    write_properties_data("values.bin", &header, &values)?;
 pub fn read_properties_data(path: &str, header: &Header) -> Result<Vec<Data>, Error> {
     let file = th!(File::open(path), Error::Io);
     let mut reader = BufReader::new(file);
