@@ -209,6 +209,7 @@ pub struct BuilderHeader {
     headers_dynamic_size: Vec<PropertyHeader>,
     is_dynamic_size: bool,
     next_byte_position: usize,
+    dynamic_size_positions: Vec<usize>,
 }
 
 impl BuilderHeader {
@@ -219,6 +220,7 @@ impl BuilderHeader {
             headers_dynamic_size: Vec::new(),
             is_dynamic_size: false,
             next_byte_position: 0,
+            dynamic_size_positions: Vec::new(),
         }
     }
 
@@ -248,7 +250,7 @@ impl BuilderHeader {
         } else {
             prop.update_byte_position(self.next_byte_position);
 
-            self.next_byte_position += prop.default_size() + 1;
+            self.next_byte_position += prop.default_size();
 
             self.headers.push(prop);
         }
@@ -262,6 +264,9 @@ impl BuilderHeader {
             .map(|prop| {
                 let mut prop = prop.clone();
                 prop.update_position(self.headers.len() + prop.get_position());
+
+                self.dynamic_size_positions.push(prop.get_position());
+
                 prop
             })
             .collect::<Vec<_>>();
@@ -272,7 +277,12 @@ impl BuilderHeader {
         Header {
             headers,
             is_dynamic_size: self.is_dynamic_size,
-            last_byte_position_no_dynamic: self.next_byte_position,
+            last_byte_position_no_dynamic: if self.is_dynamic_size {
+                Some(self.next_byte_position)
+            } else {
+                None
+            },
+            dynamic_size_positions: self.dynamic_size_positions.clone(),
         }
     }
 }
@@ -290,7 +300,8 @@ impl BuilderHeader {
 pub struct Header {
     headers: Vec<PropertyHeader>,
     is_dynamic_size: bool,
-    last_byte_position_no_dynamic: usize,
+    last_byte_position_no_dynamic: Option<usize>,
+    dynamic_size_positions: Vec<usize>,
 }
 
 impl Header {
@@ -299,7 +310,8 @@ impl Header {
         Header {
             headers: Vec::new(),
             is_dynamic_size: false,
-            last_byte_position_no_dynamic: 0,
+            last_byte_position_no_dynamic: None,
+            dynamic_size_positions: Vec::new(),
         }
     }
 
@@ -325,11 +337,21 @@ impl Header {
     }
 
     /// Get the size of the header
+    pub fn get_last_byte_position_no_dynamic(&self) -> Option<usize> {
+        self.last_byte_position_no_dynamic
+    }
+
+    /// Get the size of the header
     pub fn get_by_label(&self, label: &[u8]) -> Result<&PropertyHeader, Error> {
         match self.headers.iter().find(|prop| prop.label == label) {
             Some(prop) => Ok(prop),
             None => Err(Error::LabelNotFound),
         }
+    }
+
+    /// Get the size of the header
+    pub fn get_dynamic_size_positions(&self) -> Vec<usize> {
+        self.dynamic_size_positions.clone()
     }
 
     /// Write header to file
@@ -354,7 +376,7 @@ impl Header {
 
         let mut is_dynamic_size = false;
 
-        self.last_byte_position_no_dynamic = self
+        let last_byte_position_no_dynamic = self
             .headers
             .iter()
             .map(|prop| {
@@ -369,6 +391,10 @@ impl Header {
                 prop.get_byte_position().unwrap_or(0)
             })
             .sum();
+
+        if is_dynamic_size {
+            self.last_byte_position_no_dynamic = Some(last_byte_position_no_dynamic);
+        }
 
         self.is_dynamic_size = is_dynamic_size;
 
@@ -591,16 +617,19 @@ mod tests {
         let header = Header::from(vec![
             ("varchar", DataType::Varchar(10)),
             ("text", DataType::Text),
+            ("text2", DataType::Text),
             ("i32", DataType::I32),
             ("boolean", DataType::Boolean),
         ]);
 
         assert_eq!(header.headers.get(0).unwrap().get_byte_position(), Some(0));
-        assert_eq!(header.headers.get(1).unwrap().get_byte_position(), Some(11));
+        assert_eq!(header.headers.get(1).unwrap().get_byte_position(), Some(10));
         assert_eq!(
             header.headers.get(2).unwrap().get_byte_position(),
-            Some(DEFAULT_SIZE_I32 + 12)
+            Some(DEFAULT_SIZE_I32 + 10)
         );
         assert_eq!(header.headers.get(3).unwrap().get_byte_position(), None);
+        assert_eq!(header.headers.get(4).unwrap().get_byte_position(), None);
+        assert_eq!(header.get_dynamic_size_positions(), vec![3, 4]);
     }
 }

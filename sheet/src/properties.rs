@@ -1,9 +1,11 @@
 use byteorder::ReadBytesExt;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, Write};
 
-use crate::header::{DataType, Header};
-use crate::{th, th_msg, th_none, Error, FALSE_BIN_VALUE, NULL_BIN_VALUE, TRUE_BIN_VALUE};
+use crate::header::{DataType, Header, PropertyHeader};
+use crate::{
+    th, th_msg, th_none, Error, DEFAULT_SIZE_U32, FALSE_BIN_VALUE, NULL_BIN_VALUE, TRUE_BIN_VALUE,
+};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum DataValue {
@@ -118,31 +120,31 @@ impl<'a> BuilderData<'a> {
 /// ```
 /// use std::fs;
 /// use sheet::{DataType, DataValue, Header, BuilderData};
-/// 
+///
 /// let header = Header::from(vec![
 ///   ("varchar", DataType::Varchar(30)),
 ///   ("boolean", DataType::Boolean),
 ///   ("text", DataType::Text),
 ///   ("i8", DataType::I8),
 /// ]);
-/// 
+///
 /// let values = vec![
 ///   DataValue::String(format!("{: <30}", "varchar")),
 ///   DataValue::Boolean(true),
 ///   DataValue::String("text".to_string()),
 ///   DataValue::I8(8),
 /// ];
-/// 
+///
 /// let mut data = BuilderData::from_properties(&header, values).build();
 ///
 /// let path = "test_data_struct.bin";
-/// 
+///
 /// assert!(data.write(path).is_ok());
-/// 
+///
 /// assert!(data.read(path).is_ok());
-/// 
+///
 /// assert_eq!(values, *data.get_values());
-/// 
+///
 /// fs::remove(path).unwrap();
 /// ```
 #[derive(Debug)]
@@ -152,13 +154,14 @@ pub struct Data<'a> {
 }
 
 impl<'a> Data<'a> {
+    /// Create a new Data struct
     pub fn new(header: &'a Header) -> Self {
         Self {
             header,
             values: Vec::with_capacity(header.len()),
         }
     }
-
+    /// Write the Data struct to a file
     pub fn write(&mut self, path: &str) -> Result<(), Error> {
         let mut buffer_writer = BufWriter::new(th_msg!(File::create(path), Error::Io));
 
@@ -171,26 +174,67 @@ impl<'a> Data<'a> {
         Ok(())
     }
 
+    /// Read the Data struct from a file
     pub fn read(&mut self, path: &str) -> Result<(), Error> {
         let mut buffer_reader = BufReader::new(th_msg!(File::open(path), Error::Io));
         self.values = read_properties(&mut buffer_reader, self.header)?;
         Ok(())
     }
 
+    /// Read the Data struct from a file by original positions
+    pub fn read_by_original_positions(
+        &mut self,
+        path: &str,
+        property_headers_original_positions: &Vec<usize>,
+    ) -> Result<(), Error> {
+        let mut buffer_reader = BufReader::new(th_msg!(File::open(path), Error::Io));
+        let property_headers = property_headers_original_positions
+            .iter()
+            .filter_map(|original_position| {
+                self.header.get_by_original_position(*original_position)
+            })
+            .collect::<Vec<_>>();
+
+        self.values =
+            read_properties_by_byte_position(&mut buffer_reader, self.header, &property_headers)?;
+        Ok(())
+    }
+
+    /// Read the Data struct from a file by positions
+    pub fn read_by_positions(
+        &mut self,
+        path: &str,
+        property_headers_positions: &Vec<usize>,
+    ) -> Result<(), Error> {
+        let mut buffer_reader = BufReader::new(th_msg!(File::open(path), Error::Io));
+        let property_headers = property_headers_positions
+            .iter()
+            .filter_map(|position| self.header.get(*position))
+            .collect::<Vec<_>>();
+
+        self.values =
+            read_properties_by_byte_position(&mut buffer_reader, self.header, &property_headers)?;
+        Ok(())
+    }
+
+    /// Get a value by index
     pub fn get(&self, index: usize) -> Option<&DataValue> {
         self.values.get(index)
     }
 
+    /// Get the values
     pub fn len(&self) -> usize {
         self.values.len()
     }
 
+    /// Get the values
     pub fn get_by_label(&self, label: &[u8]) -> Result<&DataValue, Error> {
         let label = th!(self.header.get_by_label(label), Error::LabelNotFound);
         let label = th_none!(self.values.get(label.get_position()), Error::LabelNotFound);
         Ok(label)
     }
 
+    /// Get the values
     pub fn get_values(&self) -> &Vec<DataValue> {
         &self.values
     }
@@ -217,6 +261,25 @@ macro_rules! read_data {
             _ => return Err(Error::ReadInvalidDataType),
         }
     };
+}
+
+macro_rules! read_data_by_byte_position {
+    ($reader:expr, $prop:expr, $data_type:ident, $method:ident) => {{
+        let pos = $prop.get_byte_position().unwrap();
+
+        th_msg!(
+            $reader.seek(std::io::SeekFrom::Start(pos as u64)),
+            Error::Io
+        );
+
+        match $prop.get_data_type() {
+            DataType::$data_type => {
+                let value = th_msg!($reader.$method::<byteorder::LittleEndian>(), Error::Io);
+                DataValue::$data_type(value)
+            }
+            _ => return Err(Error::ReadInvalidDataType),
+        }
+    }};
 }
 
 /// Write properties to a file
@@ -455,11 +518,132 @@ pub fn read_properties(
     Ok(values)
 }
 
-// pub fn read_properties_by_position(
-//     buffer_reader: &mut BufReader<File>,
-//     positions: &Vec<u64>,
-// ) -> Result<Vec<DataValue>, Error> {
-// }
+/// Read properties from a file by byte position
+/// Different from read_properties, this function reads the properties by byte position
+pub fn read_properties_by_byte_position(
+    buffer_reader: &mut BufReader<File>,
+    header: &Header,
+    property_headers: &Vec<&PropertyHeader>,
+) -> Result<Vec<DataValue>, Error> {
+    let mut values = Vec::new();
+
+    for prop in property_headers.into_iter() {
+        let value = match prop.get_data_type() {
+            DataType::Varchar(size) => {
+                let pos = prop.get_byte_position().unwrap();
+                th_msg!(
+                    buffer_reader.seek(std::io::SeekFrom::Start(pos as u64)),
+                    Error::Io
+                );
+
+                let size = *size;
+                let mut buffer = vec![0u8; size as usize];
+
+                th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
+
+                DataValue::String(String::from_utf8(buffer).expect("UTF-8 decoding error"))
+            }
+            DataType::Text => {
+                let mut last_pos = header.get_last_byte_position_no_dynamic().unwrap() as u64;
+                let dynamic_sizes_positions = header.get_dynamic_size_positions();
+                let mut dynamic_iter = dynamic_sizes_positions.iter();
+
+                loop {
+                    match dynamic_iter.next() {
+                        Some(position) => {
+                            th_msg!(
+                                buffer_reader.seek(std::io::SeekFrom::Start(last_pos)),
+                                Error::Io
+                            );
+                            let size = th_msg!(
+                                buffer_reader.read_u32::<byteorder::LittleEndian>(),
+                                Error::Io
+                            ) as usize;
+
+                            if position == &prop.get_position() {
+                                let mut buffer = vec![0u8; size];
+
+                                th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
+
+                                break DataValue::String(
+                                    String::from_utf8(buffer).expect("UTF-8 decoding error"),
+                                );
+                            } else {
+                                last_pos += (size + DEFAULT_SIZE_U32) as u64 + 1;
+                            }
+                        }
+                        None => return Err(Error::NoGetBytePosition),
+                    }
+                }
+            }
+            DataType::Boolean => {
+                let pos = prop.get_byte_position().unwrap();
+                th_msg!(
+                    buffer_reader.seek(std::io::SeekFrom::Start(pos as u64)),
+                    Error::Io
+                );
+
+                let value = th_msg!(buffer_reader.read_u8(), Error::Io);
+                DataValue::Boolean(value == 1)
+            }
+            DataType::I8 => {
+                let pos = prop.get_byte_position().unwrap();
+                th_msg!(
+                    buffer_reader.seek(std::io::SeekFrom::Start(pos as u64)),
+                    Error::Io
+                );
+
+                let value = th_msg!(buffer_reader.read_i8(), Error::Io);
+                DataValue::I8(value)
+            }
+            DataType::I16 => {
+                read_data_by_byte_position!(buffer_reader, prop, I16, read_i16)
+            }
+            DataType::I32 => {
+                read_data_by_byte_position!(buffer_reader, prop, I32, read_i32)
+            }
+            DataType::I64 => {
+                read_data_by_byte_position!(buffer_reader, prop, I64, read_i64)
+            }
+            DataType::I128 => {
+                read_data_by_byte_position!(buffer_reader, prop, I128, read_i128)
+            }
+            DataType::U8 => {
+                let pos = prop.get_byte_position().unwrap();
+                th_msg!(
+                    buffer_reader.seek(std::io::SeekFrom::Start(pos as u64)),
+                    Error::Io
+                );
+                let value = th_msg!(buffer_reader.read_u8(), Error::Io);
+                DataValue::U8(value)
+            }
+            DataType::U16 => {
+                read_data_by_byte_position!(buffer_reader, prop, U16, read_u16)
+            }
+            DataType::U32 => {
+                read_data_by_byte_position!(buffer_reader, prop, U32, read_u32)
+            }
+            DataType::U64 => {
+                read_data_by_byte_position!(buffer_reader, prop, U64, read_u64)
+            }
+            DataType::U128 => {
+                read_data_by_byte_position!(buffer_reader, prop, U128, read_u128)
+            }
+            DataType::F32 => {
+                read_data_by_byte_position!(buffer_reader, prop, F32, read_f32)
+            }
+            DataType::F64 => {
+                read_data_by_byte_position!(buffer_reader, prop, F64, read_f64)
+            }
+            DataType::Null => DataValue::Null,
+            _ => return Err(Error::ReadInvalidDataType),
+        };
+
+        values.push(value);
+    }
+
+    Ok(values)
+}
 
 #[cfg(test)]
 mod tests {
@@ -579,6 +763,83 @@ mod tests {
         assert!(data.read(path).is_ok());
 
         assert_eq!(values, *data.get_values());
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_read_by_original_positions() {
+        let header = Header::from(vec![
+            ("varchar", DataType::Varchar(30)),
+            ("boolean", DataType::Boolean),
+            ("text", DataType::Text),
+            ("i8", DataType::I8),
+        ]);
+
+        let values = vec![
+            DataValue::String(format!("{: <30}", "varchar")),
+            DataValue::Boolean(true),
+            DataValue::String("text".to_string()),
+            DataValue::I8(8),
+        ];
+
+        let mut data = BuilderData::from_properties(&header, values.clone()).build();
+
+        let path = "test_read_by_original_positions.bin";
+
+        assert!(data.write(path).is_ok());
+
+        let property_headers_original_positions = vec![1, 0, 3];
+
+        assert!(data
+            .read_by_original_positions(path, &property_headers_original_positions)
+            .is_ok());
+
+        let expected = property_headers_original_positions
+            .iter()
+            .map(|position| values.get(*position).unwrap().clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(expected, *data.get_values());
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_read_by_positions(){
+        let header = Header::from(vec![
+            ("varchar", DataType::Varchar(30)),
+            ("boolean", DataType::Boolean),
+            ("text", DataType::Text),
+            ("i8", DataType::I8),
+        ]);
+
+        let values = vec![
+            DataValue::String(format!("{: <30}", "varchar")),
+            DataValue::Boolean(true),
+            DataValue::String("text".to_string()),
+            DataValue::I8(8),
+        ];
+
+        let mut data = BuilderData::from_properties(&header, values.clone()).build();
+
+        let path = "test_read_by_positions.bin";
+
+        assert!(data.write(path).is_ok());
+
+        let property_headers_original_positions = vec![1, 2, 3];
+
+        assert!(data
+            .read_by_positions(path, &property_headers_original_positions)
+            .is_ok());
+
+        let expected =  vec![
+            DataValue::Boolean(true),
+            DataValue::I8(8),
+            DataValue::String("text".to_string()),
+        ];
+
+        assert_eq!(expected, *data.get_values());
 
         fs::remove_file(path).unwrap();
     }
