@@ -468,7 +468,6 @@ mod tests {
 
     #[test]
     fn test_write_and_reader_header() {
-        let header_path = "header.bin";
         let original_properties = Header::from(vec![
             ("varchar", DataType::Varchar(10)),
             ("text", DataType::Text),
@@ -492,13 +491,14 @@ mod tests {
         assert_eq!(f64_prop.get_position(), 2);
         assert_eq!(f64_prop.get_original_position(), 3);
 
-        let buffer_writer = &mut BufWriter::new(File::create(header_path).unwrap());
+        let path = "test_write_and_reader_header.bin";
+        let buffer_writer = &mut BufWriter::new(File::create(path).unwrap());
 
         write_header(buffer_writer, original_properties.headers_iter()).unwrap();
 
         buffer_writer.flush().unwrap();
 
-        let buffer_reader = &mut BufReader::new(File::open(header_path).unwrap());
+        let buffer_reader = &mut BufReader::new(File::open(path).unwrap());
 
         let properties = read_header(buffer_reader).unwrap();
 
@@ -511,44 +511,51 @@ mod tests {
 
         assert_eq!(properties, original_properties_new_order);
 
-        fs::remove_file("header.bin").unwrap();
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn test_header_builder() {
         let mut header = Header::from(vec![
-            ("name", DataType::Varchar(10)),
-            ("age", DataType::I32),
-            ("height", DataType::F64),
+            ("varchar", DataType::Varchar(10)),
+            ("text", DataType::Text),
+            ("i32", DataType::I32),
+            ("boolean", DataType::Boolean),
         ]);
 
-        let name_prop = header.get_by_label("name".as_bytes()).unwrap();
-        let age_prop = header.get_by_label("age".as_bytes()).unwrap();
-        let height_prop = header.get_by_label("height".as_bytes()).unwrap();
+        let varchar_prop = header.get_by_label("varchar".as_bytes()).unwrap();
+        let text_prop = header.get_by_label("text".as_bytes()).unwrap();
+        let i32_prop = header.get_by_label("i32".as_bytes()).unwrap();
+        let boolean_prop = header.get_by_label("boolean".as_bytes()).unwrap();
 
-        assert_eq!(name_prop.get_position(), 0);
-        assert_eq!(name_prop.get_original_position(), 0);
-        assert_eq!(age_prop.get_position(), 1);
-        assert_eq!(age_prop.get_original_position(), 1);
-        assert_eq!(height_prop.get_position(), 2);
-        assert_eq!(height_prop.get_original_position(), 2);
-        let path = "header.bin";
+        assert_eq!(varchar_prop.get_position(), 0);
+        assert_eq!(varchar_prop.get_original_position(), 0);
+        assert_eq!(text_prop.get_position(), 3);
+        assert_eq!(text_prop.get_original_position(), 1);
+        assert_eq!(i32_prop.get_position(), 1);
+        assert_eq!(i32_prop.get_original_position(), 2);
+        assert_eq!(boolean_prop.get_position(), 2);
+        assert_eq!(boolean_prop.get_original_position(), 3);
 
-        header.write(path).unwrap();
+        let path = "test_header_builder.bin";
+        assert!(header.write(path).is_ok());
 
-        let mut header = Header::new();
+        assert!(header.read(path).is_ok());
 
-        header.read(path).unwrap();
+        let varchar_prop = header.get_by_label("varchar".as_bytes()).unwrap();
+        let text_prop = header.get_by_label("text".as_bytes()).unwrap();
+        let i32_prop = header.get_by_label("i32".as_bytes()).unwrap();
+        let boolean_prop = header.get_by_label("boolean".as_bytes()).unwrap();
 
-        let name_prop = header.get_by_label("name".as_bytes()).unwrap();
-        let age_prop = header.get_by_label("age".as_bytes()).unwrap();
-        let height_prop = header.get_by_label("height".as_bytes()).unwrap();
+        assert_eq!(varchar_prop.get_position(), 0);
+        assert_eq!(varchar_prop.get_original_position(), 0);
+        assert_eq!(text_prop.get_position(), 3);
+        assert_eq!(text_prop.get_original_position(), 1);
+        assert_eq!(i32_prop.get_position(), 1);
+        assert_eq!(i32_prop.get_original_position(), 2);
+        assert_eq!(boolean_prop.get_position(), 2);
+        assert_eq!(boolean_prop.get_original_position(), 3);
 
-        assert_eq!(name_prop.get_position(), 0);
-        assert_eq!(name_prop.get_original_position(), 0);
-        assert_eq!(age_prop.get_position(), 1);
-        assert_eq!(age_prop.get_original_position(), 1);
-        assert_eq!(height_prop.get_position(), 2);
-        assert_eq!(height_prop.get_original_position(), 2);
+        fs::remove_file(path).unwrap();
     }
 }

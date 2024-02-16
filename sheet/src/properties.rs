@@ -471,7 +471,7 @@ mod tests {
             DataValue::String("text".to_string()),
         ];
 
-        let path = "values.bin";
+        let path: &str = "test_write_and_read_properties.bin";
 
         let buffer_writer = &mut BufWriter::new(File::create(path).unwrap());
 
@@ -484,7 +484,7 @@ mod tests {
         let read_properties = read_properties(buffer_reader, &header).unwrap();
         assert_eq!(values, read_properties);
 
-        fs::remove_file("values.bin").unwrap();
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -510,9 +510,17 @@ mod tests {
             DataValue::String("text".to_string()),
         ];
 
-        let data = BuilderData::from_properties(&header, values).build();
+        let mut data = BuilderData::from_properties(&header, values).build();
+
+        let path = "test_data_struct.bin";
+
+        assert!(data.write(path).is_ok());
+
+        assert!(data.read(path).is_ok());
 
         assert_eq!(values_new_order, *data.get_values());
+
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -530,8 +538,16 @@ mod tests {
             DataValue::I8(8),
             DataValue::String("text".to_string()),
         ];
-        let data = BuilderData::from_properties_unsafe(&header, values.clone()).build();
+        let mut data = BuilderData::from_properties_unsafe(&header, values.clone()).build();
+
+        let path = "test_data_struct_unsafe.bin";
+
+        assert!(data.write(path).is_ok());
+
+        assert!(data.read(path).is_ok());
 
         assert_eq!(values, *data.get_values());
+
+        fs::remove_file(path).unwrap();
     }
 }
