@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum DataValue {
+pub enum Data {
     Null,
     Boolean(bool),
     String(String),
@@ -37,23 +37,23 @@ pub enum DataValue {
 /// ]);
 ///
 /// let values = vec![
-///   DataValue::String(format!("{: <30}", "varchar")),
-///   DataValue::Boolean(true),
-///   DataValue::String("text".to_string()),
-///   DataValue::I8(8),
+///   Data::String(format!("{: <30}", "varchar")),
+///   Data::Boolean(true),
+///   Data::String("text".to_string()),
+///   Data::I8(8),
 /// ];
 ///
-/// let builder = BuilderData::from_properties(&header, "values.bin", values);
+/// let builder = BuilderProperties::from_properties(&header, "values.bin", values);
 /// let data = builder.build();
 /// ```
-pub struct BuilderData<'a> {
+pub struct BuilderProperties<'a> {
     header: &'a Header,
-    values: Vec<DataValue>,
-    dynamic_values: Vec<DataValue>,
+    values: Vec<Data>,
+    dynamic_values: Vec<Data>,
 }
 
-impl<'a> BuilderData<'a> {
-    /// Create a new BuilderData
+impl<'a> BuilderProperties<'a> {
+    /// Create a new BuilderProperties
     pub fn new(header: &'a Header) -> Self {
         Self {
             header,
@@ -62,9 +62,9 @@ impl<'a> BuilderData<'a> {
         }
     }
 
-    /// Create a new BuilderData from properties without orderer values.
+    /// Create a new BuilderProperties from properties without orderer values.
     /// This method is unsafe because it does not check the order of the values.
-    pub fn from_properties_unsafe(header: &'a Header, values: Vec<DataValue>) -> Self {
+    pub fn from_properties_unsafe(header: &'a Header, values: Vec<Data>) -> Properties<'a> {
         let builder = {
             let mut builder = Self::new(header);
 
@@ -73,12 +73,12 @@ impl<'a> BuilderData<'a> {
             builder
         };
 
-        builder
+        builder.build()
     }
 
-    /// Create a new BuilderData from properties, ordering the values by the header
-    pub fn from_properties(header: &'a Header, values: Vec<DataValue>) -> Self {
-        let builder = {
+    /// Create a new BuilderProperties from properties, ordering the values by the header
+    pub fn from_properties(header: &'a Header, values: Vec<Data>) -> Properties<'a> {
+        let builder: BuilderProperties<'_> = {
             let mut builder = Self::new(header);
 
             for value in values {
@@ -88,11 +88,11 @@ impl<'a> BuilderData<'a> {
             builder
         };
 
-        builder
+        builder.build()
     }
 
     /// Add a property to the builder
-    pub fn add_property(&mut self, value: DataValue) {
+    pub fn add_property(&mut self, value: Data) {
         let position = self.values.len() + self.dynamic_values.len();
         let prop = self.header.get_by_original_position(position).unwrap();
 
@@ -104,11 +104,11 @@ impl<'a> BuilderData<'a> {
     }
 
     /// Build the Data struct
-    pub fn build(self) -> Data<'a> {
+    pub fn build(self) -> Properties<'a> {
         let mut values = self.values.clone();
         values.append(&mut self.dynamic_values.clone());
 
-        Data {
+        Properties {
             header: self.header,
             values,
         }
@@ -119,7 +119,7 @@ impl<'a> BuilderData<'a> {
 /// # Example
 /// ```
 /// use std::fs;
-/// use sheet::{DataType, DataValue, Header, BuilderData};
+/// use sheet::{DataType, Data, Header, BuilderProperties};
 ///
 /// let header = Header::from(vec![
 ///   ("varchar", DataType::Varchar(30)),
@@ -129,31 +129,31 @@ impl<'a> BuilderData<'a> {
 /// ]);
 ///
 /// let values = vec![
-///   DataValue::String(format!("{: <30}", "varchar")),
-///   DataValue::Boolean(true),
-///   DataValue::String("text".to_string()),
-///   DataValue::I8(8),
+///   Data::String(format!("{: <30}", "varchar")),
+///   Data::Boolean(true),
+///   Data::String("text".to_string()),
+///   Data::I8(8),
 /// ];
 ///
-/// let mut data = BuilderData::from_properties(&header, values).build();
+/// let mut properties = BuilderProperties::from_properties(&header, values).build();
 ///
 /// let path = "test_data_struct.bin";
 ///
-/// assert!(data.write(path).is_ok());
+/// assert!(properties.write(path).is_ok());
 ///
-/// assert!(data.read(path).is_ok());
+/// assert!(properties.read(path).is_ok());
 ///
-/// assert_eq!(values, *data.get_values());
+/// assert_eq!(values, *properties.get_values());
 ///
 /// fs::remove(path).unwrap();
 /// ```
 #[derive(Debug)]
-pub struct Data<'a> {
+pub struct Properties<'a> {
     header: &'a Header,
-    values: Vec<DataValue>,
+    values: Vec<Data>,
 }
 
-impl<'a> Data<'a> {
+impl<'a> Properties<'a> {
     /// Create a new Data struct
     pub fn new(header: &'a Header) -> Self {
         Self {
@@ -218,7 +218,7 @@ impl<'a> Data<'a> {
     }
 
     /// Get a value by index
-    pub fn get(&self, index: usize) -> Option<&DataValue> {
+    pub fn get(&self, index: usize) -> Option<&Data> {
         self.values.get(index)
     }
 
@@ -228,14 +228,14 @@ impl<'a> Data<'a> {
     }
 
     /// Get the values
-    pub fn get_by_label(&self, label: &[u8]) -> Result<&DataValue, Error> {
+    pub fn get_by_label(&self, label: &[u8]) -> Result<&Data, Error> {
         let label = th!(self.header.get_by_label(label), Error::LabelNotFound);
         let label = th_none!(self.values.get(label.get_position()), Error::LabelNotFound);
         Ok(label)
     }
 
     /// Get the values
-    pub fn get_values(&self) -> &Vec<DataValue> {
+    pub fn get_values(&self) -> &Vec<Data> {
         &self.values
     }
 }
@@ -256,7 +256,7 @@ macro_rules! read_data {
         match $prop.get_data_type() {
             DataType::$data_type => {
                 let value = th_msg!($reader.$method::<byteorder::LittleEndian>(), Error::Io);
-                DataValue::$data_type(value)
+                Data::$data_type(value)
             }
             _ => return Err(Error::ReadInvalidDataType),
         }
@@ -275,7 +275,7 @@ macro_rules! read_data_by_byte_position {
         match $prop.get_data_type() {
             DataType::$data_type => {
                 let value = th_msg!($reader.$method::<byteorder::LittleEndian>(), Error::Io);
-                DataValue::$data_type(value)
+                Data::$data_type(value)
             }
             _ => return Err(Error::ReadInvalidDataType),
         }
@@ -303,20 +303,20 @@ macro_rules! read_data_by_byte_position {
 ///    PropertyHeader::from(("f64", DataType::F64)),
 /// ];
 /// let values = vec![
-///    DataValue::String(format!("{: <30}", "varchar")),
-///    DataValue::Boolean(true),
-///    DataValue::String("text".to_string()),
-///    DataValue::I8(8),
-///    DataValue::I16(16),
-///    DataValue::I32(32),
-///    DataValue::I64(64),
-///    DataValue::I128(128),
-///    DataValue::U8(8),
-///    DataValue::U16(16),
-///    DataValue::U32(32),
-///    DataValue::U64(64),
-///    DataValue::F32(32.0),
-///    DataValue::F64(64.0),
+///    Data::String(format!("{: <30}", "varchar")),
+///    Data::Boolean(true),
+///    Data::String("text".to_string()),
+///    Data::I8(8),
+///    Data::I16(16),
+///    Data::I32(32),
+///    Data::I64(64),
+///    Data::I128(128),
+///    Data::U8(8),
+///    Data::U16(16),
+///    Data::U32(32),
+///    Data::U64(64),
+///    Data::F32(32.0),
+///    Data::F64(64.0),
 /// ];
 ///
 /// write_properties(buffer_writer, &header, &values).unwrap();
@@ -327,7 +327,7 @@ macro_rules! read_data_by_byte_position {
 pub fn write_properties(
     buffer_writer: &mut BufWriter<File>,
     header: &Header,
-    values: &Vec<DataValue>,
+    values: &Vec<Data>,
 ) -> Result<(), Error> {
     for prop in header.headers_iter() {
         let value = th_none!(
@@ -336,7 +336,7 @@ pub fn write_properties(
         );
 
         match value {
-            DataValue::Boolean(data) => {
+            Data::Boolean(data) => {
                 th_msg!(
                     buffer_writer.write_all(&[if *data {
                         TRUE_BIN_VALUE
@@ -346,7 +346,7 @@ pub fn write_properties(
                     Error::Io
                 );
             }
-            DataValue::String(data) => match prop.get_data_type() {
+            Data::String(data) => match prop.get_data_type() {
                 DataType::Varchar(size) => {
                     let size = *size;
                     if data.len() > size as usize {
@@ -367,48 +367,48 @@ pub fn write_properties(
                 }
                 _ => {
                     return Err(Error::WriteInvalidDataTypeString(format!(
-                        "DataValue is String, but Header is {}",
+                        "Data is String, but Header is {}",
                         prop.get_data_type()
                     )))
                 }
             },
-            DataValue::U8(data) => {
+            Data::U8(data) => {
                 write_data!(buffer_writer, data, prop, U8);
             }
-            DataValue::U16(data) => {
+            Data::U16(data) => {
                 write_data!(buffer_writer, data, prop, U16);
             }
-            DataValue::U32(data) => {
+            Data::U32(data) => {
                 write_data!(buffer_writer, data, prop, U32);
             }
-            DataValue::U64(data) => {
+            Data::U64(data) => {
                 write_data!(buffer_writer, data, prop, U64);
             }
-            DataValue::U128(data) => {
+            Data::U128(data) => {
                 write_data!(buffer_writer, data, prop, U128);
             }
-            DataValue::I8(data) => {
+            Data::I8(data) => {
                 write_data!(buffer_writer, data, prop, I8);
             }
-            DataValue::I16(data) => {
+            Data::I16(data) => {
                 write_data!(buffer_writer, data, prop, I16);
             }
-            DataValue::I32(data) => {
+            Data::I32(data) => {
                 write_data!(buffer_writer, data, prop, I32);
             }
-            DataValue::I64(data) => {
+            Data::I64(data) => {
                 write_data!(buffer_writer, data, prop, I64);
             }
-            DataValue::I128(data) => {
+            Data::I128(data) => {
                 write_data!(buffer_writer, data, prop, I128);
             }
-            DataValue::F32(data) => {
+            Data::F32(data) => {
                 write_data!(buffer_writer, data, prop, F32);
             }
-            DataValue::F64(data) => {
+            Data::F64(data) => {
                 write_data!(buffer_writer, data, prop, F64);
             }
-            DataValue::Null => {
+            Data::Null => {
                 th_msg!(buffer_writer.write_all(&[NULL_BIN_VALUE]), Error::Io);
             }
         }
@@ -439,20 +439,20 @@ pub fn write_properties(
 /// ];
 ///
 /// let values = vec![
-///    DataValue::String(format!("{: <30}", "varchar")),
-///    DataValue::Boolean(true),
-///    DataValue::String("text".to_string()),
-///    DataValue::I8(8),
-///    DataValue::I16(16),
-///    DataValue::I32(32),
-///    DataValue::I64(64),
-///    DataValue::I128(128),
-///    DataValue::U8(8),
-///    DataValue::U16(16),
-///    DataValue::U32(32),
-///    DataValue::U64(64),
-///    DataValue::F32(32.0),
-///    DataValue::F64(64.0),
+///    Data::String(format!("{: <30}", "varchar")),
+///    Data::Boolean(true),
+///    Data::String("text".to_string()),
+///    Data::I8(8),
+///    Data::I16(16),
+///    Data::I32(32),
+///    Data::I64(64),
+///    Data::I128(128),
+///    Data::U8(8),
+///    Data::U16(16),
+///    Data::U32(32),
+///    Data::U64(64),
+///    Data::F32(32.0),
+///    Data::F64(64.0),
 /// ];
 ///
 /// let read_properties = read_properties(buffer_reader, &header).unwrap();
@@ -461,7 +461,7 @@ pub fn write_properties(
 pub fn read_properties(
     buffer_reader: &mut BufReader<File>,
     header: &Header,
-) -> Result<Vec<DataValue>, Error> {
+) -> Result<Vec<Data>, Error> {
     let mut values = Vec::new();
 
     for prop in header.headers_iter() {
@@ -472,7 +472,7 @@ pub fn read_properties(
 
                 th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
-                DataValue::String(String::from_utf8(buffer).expect("UTF-8 decoding error"))
+                Data::String(String::from_utf8(buffer).expect("UTF-8 decoding error"))
             }
             DataType::Text => {
                 let size = th_msg!(
@@ -484,15 +484,15 @@ pub fn read_properties(
 
                 th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
-                DataValue::String(String::from_utf8(buffer).expect("UTF-8 decoding error"))
+                Data::String(String::from_utf8(buffer).expect("UTF-8 decoding error"))
             }
             DataType::Boolean => {
                 let value = th_msg!(buffer_reader.read_u8(), Error::Io);
-                DataValue::Boolean(value == 1)
+                Data::Boolean(value == 1)
             }
             DataType::I8 => {
                 let value = th_msg!(buffer_reader.read_i8(), Error::Io);
-                DataValue::I8(value)
+                Data::I8(value)
             }
             DataType::I16 => read_data!(buffer_reader, prop, I16, read_i16),
             DataType::I32 => read_data!(buffer_reader, prop, I32, read_i32),
@@ -500,7 +500,7 @@ pub fn read_properties(
             DataType::I128 => read_data!(buffer_reader, prop, I128, read_i128),
             DataType::U8 => {
                 let value = th_msg!(buffer_reader.read_u8(), Error::Io);
-                DataValue::U8(value)
+                Data::U8(value)
             }
             DataType::U16 => read_data!(buffer_reader, prop, U16, read_u16),
             DataType::U32 => read_data!(buffer_reader, prop, U32, read_u32),
@@ -508,7 +508,7 @@ pub fn read_properties(
             DataType::U128 => read_data!(buffer_reader, prop, U128, read_u128),
             DataType::F32 => read_data!(buffer_reader, prop, F32, read_f32),
             DataType::F64 => read_data!(buffer_reader, prop, F64, read_f64),
-            DataType::Null => DataValue::Null,
+            DataType::Null => Data::Null,
             _ => return Err(Error::ReadInvalidDataType),
         };
 
@@ -524,7 +524,7 @@ pub fn read_properties_by_byte_position(
     buffer_reader: &mut BufReader<File>,
     header: &Header,
     property_headers: &Vec<&PropertyHeader>,
-) -> Result<Vec<DataValue>, Error> {
+) -> Result<Vec<Data>, Error> {
     let mut values = Vec::new();
 
     for prop in property_headers.into_iter() {
@@ -541,7 +541,7 @@ pub fn read_properties_by_byte_position(
 
                 th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
-                DataValue::String(String::from_utf8(buffer).expect("UTF-8 decoding error"))
+                Data::String(String::from_utf8(buffer).expect("UTF-8 decoding error"))
             }
             DataType::Text => {
                 let mut last_pos = header.get_last_byte_position_no_dynamic().unwrap() as u64;
@@ -565,7 +565,7 @@ pub fn read_properties_by_byte_position(
 
                                 th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
-                                break DataValue::String(
+                                break Data::String(
                                     String::from_utf8(buffer).expect("UTF-8 decoding error"),
                                 );
                             } else {
@@ -584,7 +584,7 @@ pub fn read_properties_by_byte_position(
                 );
 
                 let value = th_msg!(buffer_reader.read_u8(), Error::Io);
-                DataValue::Boolean(value == 1)
+                Data::Boolean(value == 1)
             }
             DataType::I8 => {
                 let pos = prop.get_byte_position().unwrap();
@@ -594,7 +594,7 @@ pub fn read_properties_by_byte_position(
                 );
 
                 let value = th_msg!(buffer_reader.read_i8(), Error::Io);
-                DataValue::I8(value)
+                Data::I8(value)
             }
             DataType::I16 => {
                 read_data_by_byte_position!(buffer_reader, prop, I16, read_i16)
@@ -615,7 +615,7 @@ pub fn read_properties_by_byte_position(
                     Error::Io
                 );
                 let value = th_msg!(buffer_reader.read_u8(), Error::Io);
-                DataValue::U8(value)
+                Data::U8(value)
             }
             DataType::U16 => {
                 read_data_by_byte_position!(buffer_reader, prop, U16, read_u16)
@@ -635,7 +635,7 @@ pub fn read_properties_by_byte_position(
             DataType::F64 => {
                 read_data_by_byte_position!(buffer_reader, prop, F64, read_f64)
             }
-            DataType::Null => DataValue::Null,
+            DataType::Null => Data::Null,
             _ => return Err(Error::ReadInvalidDataType),
         };
 
@@ -667,24 +667,25 @@ mod tests {
             ("u64", DataType::U64),
             ("f32", DataType::F32),
             ("f64", DataType::F64),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let values = vec![
-            DataValue::String(format!("{: <30}", "varchar")),
-            DataValue::Boolean(true),
-            DataValue::I8(8),
-            DataValue::I16(16),
-            DataValue::I32(32),
-            DataValue::I64(64),
-            DataValue::I128(128),
-            DataValue::U8(8),
-            DataValue::U16(16),
-            DataValue::U32(32),
-            DataValue::U64(64),
-            DataValue::F32(32.0),
-            DataValue::F64(64.0),
+            Data::String(format!("{: <30}", "varchar")),
+            Data::Boolean(true),
+            Data::I8(8),
+            Data::I16(16),
+            Data::I32(32),
+            Data::I64(64),
+            Data::I128(128),
+            Data::U8(8),
+            Data::U16(16),
+            Data::U32(32),
+            Data::U64(64),
+            Data::F32(32.0),
+            Data::F64(64.0),
             // Text is positioned at the end automatically because it is a dynamic size type
-            DataValue::String("text".to_string()),
+            Data::String("text".to_string()),
         ];
 
         let path: &str = "test_write_and_read_properties.bin";
@@ -710,23 +711,24 @@ mod tests {
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
             ("i8", DataType::I8),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let values = vec![
-            DataValue::String(format!("{: <30}", "varchar")),
-            DataValue::Boolean(true),
-            DataValue::String("text".to_string()),
-            DataValue::I8(8),
+            Data::String(format!("{: <30}", "varchar")),
+            Data::Boolean(true),
+            Data::String("text".to_string()),
+            Data::I8(8),
         ];
 
         let values_new_order = vec![
-            DataValue::String(format!("{: <30}", "varchar")),
-            DataValue::Boolean(true),
-            DataValue::I8(8),
-            DataValue::String("text".to_string()),
+            Data::String(format!("{: <30}", "varchar")),
+            Data::Boolean(true),
+            Data::I8(8),
+            Data::String("text".to_string()),
         ];
 
-        let mut data = BuilderData::from_properties(&header, values).build();
+        let mut data = BuilderProperties::from_properties(&header, values);
 
         let path = "test_data_struct.bin";
 
@@ -746,15 +748,16 @@ mod tests {
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
             ("i8", DataType::I8),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let values = vec![
-            DataValue::String(format!("{: <30}", "varchar")),
-            DataValue::Boolean(true),
-            DataValue::I8(8),
-            DataValue::String("text".to_string()),
+            Data::String(format!("{: <30}", "varchar")),
+            Data::Boolean(true),
+            Data::I8(8),
+            Data::String("text".to_string()),
         ];
-        let mut data = BuilderData::from_properties_unsafe(&header, values.clone()).build();
+        let mut data = BuilderProperties::from_properties_unsafe(&header, values.clone());
 
         let path = "test_data_struct_unsafe.bin";
 
@@ -776,18 +779,19 @@ mod tests {
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
             ("i8", DataType::I8),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let values = vec![
-            DataValue::String("text0".to_string()),
-            DataValue::String(format!("{: <30}", "varchar")),
-            DataValue::String("text1".to_string()),
-            DataValue::Boolean(true),
-            DataValue::String("text2".to_string()),
-            DataValue::I8(8),
+            Data::String("text0".to_string()),
+            Data::String(format!("{: <30}", "varchar")),
+            Data::String("text1".to_string()),
+            Data::Boolean(true),
+            Data::String("text2".to_string()),
+            Data::I8(8),
         ];
 
-        let mut data = BuilderData::from_properties(&header, values.clone()).build();
+        let mut data = BuilderProperties::from_properties(&header, values.clone());
 
         let path = "test_read_by_original_positions.bin";
 
@@ -810,22 +814,23 @@ mod tests {
     }
 
     #[test]
-    fn test_read_by_positions(){
+    fn test_read_by_positions() {
         let header = Header::try_from(vec![
             ("varchar", DataType::Varchar(30)),
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
             ("i8", DataType::I8),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let values = vec![
-            DataValue::String(format!("{: <30}", "varchar")),
-            DataValue::Boolean(true),
-            DataValue::String("text".to_string()),
-            DataValue::I8(8),
+            Data::String(format!("{: <30}", "varchar")),
+            Data::Boolean(true),
+            Data::String("text".to_string()),
+            Data::I8(8),
         ];
 
-        let mut data = BuilderData::from_properties(&header, values.clone()).build();
+        let mut data = BuilderProperties::from_properties(&header, values.clone());
 
         let path = "test_read_by_positions.bin";
 
@@ -837,10 +842,10 @@ mod tests {
             .read_by_positions(path, &property_headers_original_positions)
             .is_ok());
 
-        let expected =  vec![
-            DataValue::Boolean(true),
-            DataValue::I8(8),
-            DataValue::String("text".to_string()),
+        let expected = vec![
+            Data::Boolean(true),
+            Data::I8(8),
+            Data::String("text".to_string()),
         ];
 
         assert_eq!(expected, *data.get_values());
