@@ -1,5 +1,5 @@
 use crate::{
-    th, th_msg, Error, DATA_TYPE_BOOLEAN, DATA_TYPE_F32, DATA_TYPE_F64, DATA_TYPE_I128,
+    properties, th, th_msg, Error, DATA_TYPE_BOOLEAN, DATA_TYPE_F32, DATA_TYPE_F64, DATA_TYPE_I128,
     DATA_TYPE_I16, DATA_TYPE_I32, DATA_TYPE_I64, DATA_TYPE_I8, DATA_TYPE_NULL, DATA_TYPE_TEXT,
     DATA_TYPE_U128, DATA_TYPE_U16, DATA_TYPE_U32, DATA_TYPE_U64, DATA_TYPE_U8, DATA_TYPE_UNDEFINED,
     DATA_TYPE_VARCHAR, DEFAULT_SIZE_BOOLEAN, DEFAULT_SIZE_F32, DEFAULT_SIZE_F64, DEFAULT_SIZE_I128,
@@ -120,16 +120,16 @@ impl From<u8> for DataType {
 pub struct PropertyHeader {
     data_type: DataType,
     label: Vec<u8>,
-    position: usize,
     original_position: usize,
+    position: usize,
     byte_position: Option<usize>,
 }
 
 impl PropertyHeader {
     pub fn new(
         label: Vec<u8>,
-        position: usize,
         original_position: usize,
+        position: usize,
         data_type: DataType,
     ) -> Self {
         PropertyHeader {
@@ -243,7 +243,7 @@ impl BuilderHeader {
             )
         };
 
-        let mut prop = PropertyHeader::new(label, position, original_position, data_type);
+        let mut prop = PropertyHeader::new(label, original_position, position, data_type);
 
         if is_dynamic_size {
             if !self.is_dynamic_size {
@@ -291,6 +291,55 @@ impl BuilderHeader {
             dynamic_size_positions: self.dynamic_size_positions.clone(),
         }
     }
+
+    /// Exclusive use of crate! Add a new property to the header.
+    pub(crate) fn add_property_raw(&mut self, mut prop: PropertyHeader) -> Result<(), Error> {
+        if prop.data_type.is_dynamic_size() {
+            if !self.is_dynamic_size {
+                self.is_dynamic_size = true;
+            }
+
+            self.headers_dynamic_size.push(prop);
+        } else {
+            prop.update_byte_position(self.next_byte_position);
+
+            self.next_byte_position += prop.default_size();
+
+            self.headers.push(prop);
+        }
+
+        Ok(())
+    }
+
+    /// Exclusive use of crate! Build the header.
+    pub(crate) fn build_raw(&mut self) -> (Vec<PropertyHeader>, bool, Option<usize>, Vec<usize>) {
+        let headers_dynamic_size = &mut self
+            .headers_dynamic_size
+            .iter()
+            .map(|prop| {
+                let mut prop = prop.clone();
+                prop.update_position(prop.get_position());
+
+                self.dynamic_size_positions.push(prop.get_position());
+
+                prop
+            })
+            .collect::<Vec<_>>();
+
+        let mut headers = self.headers.clone();
+        headers.append(headers_dynamic_size);
+
+        (
+            headers,
+            self.is_dynamic_size,
+            if self.is_dynamic_size {
+                Some(self.next_byte_position)
+            } else {
+                None
+            },
+            self.dynamic_size_positions.clone(),
+        )
+    }
 }
 
 /// BuilderHeader struct
@@ -321,8 +370,14 @@ impl Header {
         }
     }
 
+    /// Create a new Header
     pub fn len(&self) -> usize {
         self.headers.len()
+    }
+
+    /// Get the size of the header
+    pub fn get_headers(&self) -> &Vec<PropertyHeader> {
+        &self.headers
     }
 
     /// Get the size of the header
@@ -378,31 +433,20 @@ impl Header {
     pub fn read(&mut self, path: &str) -> Result<(), Error> {
         let mut buffer_reader = BufReader::new(File::open(path).unwrap());
 
-        self.headers = read_header(&mut buffer_reader)?;
+        let headers = read_header(&mut buffer_reader)?;
 
-        let mut is_dynamic_size = false;
+        let mut builder = BuilderHeader::new();
 
-        let last_byte_position_no_dynamic = self
-            .headers
-            .iter()
-            .map(|prop| {
-                if prop.is_dynamic_size() {
-                    if !is_dynamic_size {
-                        is_dynamic_size = true;
-                    }
-
-                    return 0;
-                }
-
-                prop.get_byte_position().unwrap_or(0)
-            })
-            .sum();
-
-        if is_dynamic_size {
-            self.last_byte_position_no_dynamic = Some(last_byte_position_no_dynamic);
+        for prop in headers {
+            builder.add_property_raw(prop)?;
         }
 
-        self.is_dynamic_size = is_dynamic_size;
+        let header = builder.build_raw();
+
+        self.headers = header.0;
+        self.is_dynamic_size = header.1;
+        self.last_byte_position_no_dynamic = header.2;
+        self.dynamic_size_positions = header.3;
 
         Ok(())
     }
@@ -512,8 +556,8 @@ pub fn read_header(buffer_reader: &mut BufReader<File>) -> Result<Vec<PropertyHe
 
         properties.push(PropertyHeader::new(
             label_bytes,
-            properties.len(),
             original_position,
+            properties.len(),
             data_type,
         ));
     }
@@ -566,9 +610,9 @@ mod tests {
 
         let original_properties_new_order = vec![
             PropertyHeader::new("varchar".as_bytes().to_vec(), 0, 0, DataType::Varchar(10)),
-            PropertyHeader::new("i32".as_bytes().to_vec(), 1, 2, DataType::I32),
-            PropertyHeader::new("f64".as_bytes().to_vec(), 2, 3, DataType::F64),
-            PropertyHeader::new("text".as_bytes().to_vec(), 3, 1, DataType::Text),
+            PropertyHeader::new("i32".as_bytes().to_vec(), 2, 1, DataType::I32),
+            PropertyHeader::new("f64".as_bytes().to_vec(), 3, 2, DataType::F64),
+            PropertyHeader::new("text".as_bytes().to_vec(), 1, 3, DataType::Text),
         ];
 
         assert_eq!(properties, original_properties_new_order);
@@ -648,7 +692,11 @@ mod tests {
     fn test_label_exists() {
         let mut builder = BuilderHeader::new();
 
-        assert!(builder.add("varchar".as_bytes().to_vec(), DataType::Varchar(10)).is_ok());
-        assert!(builder.add("varchar".as_bytes().to_vec(), DataType::Varchar(10)).is_err());
+        assert!(builder
+            .add("varchar".as_bytes().to_vec(), DataType::Varchar(10))
+            .is_ok());
+        assert!(builder
+            .add("varchar".as_bytes().to_vec(), DataType::Varchar(10))
+            .is_err());
     }
 }

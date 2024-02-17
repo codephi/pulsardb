@@ -7,11 +7,7 @@
 //! - Read full binary properties file.
 //! - Provides objective reading, capturing only the necessary properties.
 //! 
-//! # Example
-//! ```
-//! use sheet::{BuilderHeader, BuildProperties};
-//! 
-//! let mut header = BuilderHeader::new()
+
 use std::io;
 
 mod header;
@@ -78,4 +74,32 @@ pub enum Error {
     LabelNotFound,
     NoGetBytePosition,
     LabelExists(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_write_header_and_properties(){
+        let mut builder_header = BuilderHeader::new();
+
+        builder_header.add("name".into(), DataType::Varchar(10));
+        builder_header.add("age".into(), DataType::U8);
+        builder_header.add("description".into(), DataType::Text);
+        builder_header.add("active".into(), DataType::Boolean);
+
+        let mut header = builder_header.build();
+        let header_path = "header.bin";
+
+        header.write(header_path).unwrap();
+
+        let header_values = header.get_headers().clone();
+
+        header.read(header_path).unwrap();
+
+        assert_eq!(&header_values, header.get_headers());
+
+    }
+
 }
