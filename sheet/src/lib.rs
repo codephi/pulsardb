@@ -1,12 +1,12 @@
 //! # Sheet
-//! 
+//!
 //! Sheet is a library to read and write data to a binary file.
 //! # Features
 //! - Read and write header to a binary file
 //! - Read and write properties to a binary file
 //! - Read full binary properties file.
 //! - Provides objective reading, capturing only the necessary properties.
-//! 
+//!
 
 use std::io;
 
@@ -16,7 +16,6 @@ mod properties;
 
 pub use header::*;
 pub use properties::*;
-
 
 /// Data type for the sheet
 pub const DATA_TYPE_UNDEFINED: u8 = 0;
@@ -78,19 +77,23 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]
-    fn test_write_header_and_properties(){
+    fn test_write_header_and_properties() {
+        let header_path = "test_write_header_and_properties_header.bin";
+        let properties_path = "test_write_header_and_properties_properties.bin";
+
         let mut builder_header = BuilderHeader::new();
 
-        builder_header.add("name".into(), DataType::Varchar(10));
+        builder_header.add("name".into(), DataType::Varchar(4));
         builder_header.add("age".into(), DataType::U8);
         builder_header.add("description".into(), DataType::Text);
         builder_header.add("active".into(), DataType::Boolean);
 
         let mut header = builder_header.build();
-        let header_path = "header.bin";
 
         header.write(header_path).unwrap();
 
@@ -100,6 +103,88 @@ mod tests {
 
         assert_eq!(&header_values, header.get_headers());
 
+        let mut builder_properties = BuilderProperties::new(&header);
+
+        builder_properties.add(Data::String("John".into()));
+        builder_properties.add(Data::U8(18));
+        builder_properties.add(Data::String("This is a description".into()));
+        builder_properties.add(Data::Boolean(true));
+
+        let mut properties = builder_properties.build();
+
+        properties.write(properties_path).unwrap();
+
+        let properties_values = properties.get_properties().clone();
+
+        properties.read(properties_path).unwrap();
+
+        assert_eq!(&properties_values, properties.get_properties());
+
+        fs::remove_file(header_path).unwrap();
+        fs::remove_file(properties_path).unwrap();
     }
 
+    #[test]
+    fn test_read_properties() {
+        let header_path = "test_read_properties_header.bin";
+        let properties_path = "test_read_properties_properties.bin";
+
+        let mut builder_header = BuilderHeader::new();
+
+        builder_header.add("name".into(), DataType::Varchar(4));
+        builder_header.add("age".into(), DataType::U8);
+        builder_header.add("description".into(), DataType::Text);
+        builder_header.add("active".into(), DataType::Boolean);
+
+        let mut header = builder_header.build();
+
+        header.write(header_path).unwrap();
+
+        let header_values = header.get_headers().clone();
+
+        header.read(header_path).unwrap();
+
+        assert_eq!(&header_values, header.get_headers());
+
+        let mut builder_properties = BuilderProperties::new(&header);
+
+        builder_properties.add(Data::String("John".into()));
+        builder_properties.add(Data::U8(18));
+        builder_properties.add(Data::String("This is a description".into()));
+        builder_properties.add(Data::Boolean(true));
+
+        let mut properties = builder_properties.build();
+
+        properties.write(properties_path).unwrap();
+
+        let properties_values = properties.get_properties().clone();
+
+        properties.read(properties_path).unwrap();
+
+        assert_eq!(&properties_values, properties.get_properties());
+
+        ////////////////////////////////////////////////////////////////////////
+        // this test start here
+        ////////////////////////////////////////////////////////////////////////
+
+        let mut header = Header::new();
+        header.read(header_path).unwrap();
+
+        let mut properties = Properties::new(&header);
+        properties.read(properties_path).unwrap();
+
+        let properties_values = properties.get_properties_original_position().clone();
+
+        assert_eq!(4, properties_values.len());
+        assert_eq!(&Data::String("John".into()), properties_values[0]);
+        assert_eq!(&Data::U8(18), properties_values[1]);
+        assert_eq!(
+            &Data::String("This is a description".into()),
+            properties_values[2]
+        );
+        assert_eq!(&Data::Boolean(true), properties_values[3]);
+
+        fs::remove_file(header_path).unwrap();
+        fs::remove_file(properties_path).unwrap();
+    }
 }

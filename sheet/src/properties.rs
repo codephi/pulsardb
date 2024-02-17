@@ -48,7 +48,7 @@ pub enum Data {
 /// ```
 pub struct BuilderProperties<'a> {
     header: &'a Header,
-    values: Vec<Data>,
+    properties: Vec<Data>,
     dynamic_values: Vec<Data>,
 }
 
@@ -57,18 +57,18 @@ impl<'a> BuilderProperties<'a> {
     pub fn new(header: &'a Header) -> Self {
         Self {
             header,
-            values: Vec::with_capacity(header.len()),
+            properties: Vec::with_capacity(header.len()),
             dynamic_values: Vec::new(),
         }
     }
 
     /// Create a new BuilderProperties from properties without orderer values.
     /// This method is unsafe because it does not check the order of the values.
-    pub fn from_properties_unsafe(header: &'a Header, values: Vec<Data>) -> Properties<'a> {
+    pub fn from_properties_unsafe(header: &'a Header, properties: Vec<Data>) -> Properties<'a> {
         let builder = {
             let mut builder = Self::new(header);
 
-            builder.values = values;
+            builder.properties = properties;
 
             builder
         };
@@ -82,7 +82,7 @@ impl<'a> BuilderProperties<'a> {
             let mut builder = Self::new(header);
 
             for value in values {
-                builder.add_property(value);
+                builder.add(value);
             }
 
             builder
@@ -92,25 +92,25 @@ impl<'a> BuilderProperties<'a> {
     }
 
     /// Add a property to the builder
-    pub fn add_property(&mut self, value: Data) {
-        let position = self.values.len() + self.dynamic_values.len();
+    pub fn add(&mut self, value: Data) {
+        let position = self.properties.len() + self.dynamic_values.len();
         let prop = self.header.get_by_original_position(position).unwrap();
 
         if prop.is_dynamic_size() {
             self.dynamic_values.push(value);
         } else {
-            self.values.push(value);
+            self.properties.push(value);
         }
     }
 
     /// Build the Data struct
     pub fn build(self) -> Properties<'a> {
-        let mut values = self.values.clone();
-        values.append(&mut self.dynamic_values.clone());
+        let mut properties: Vec<Data> = self.properties.clone();
+        properties.append(&mut self.dynamic_values.clone());
 
         Properties {
             header: self.header,
-            values,
+            properties,
         }
     }
 }
@@ -143,14 +143,14 @@ impl<'a> BuilderProperties<'a> {
 ///
 /// assert!(properties.read(path).is_ok());
 ///
-/// assert_eq!(values, *properties.get_values());
+/// assert_eq!(values, *properties.get_properties());
 ///
 /// fs::remove(path).unwrap();
 /// ```
 #[derive(Debug)]
 pub struct Properties<'a> {
     header: &'a Header,
-    values: Vec<Data>,
+    properties: Vec<Data>,
 }
 
 impl<'a> Properties<'a> {
@@ -158,14 +158,14 @@ impl<'a> Properties<'a> {
     pub fn new(header: &'a Header) -> Self {
         Self {
             header,
-            values: Vec::with_capacity(header.len()),
+            properties: Vec::with_capacity(header.len()),
         }
     }
     /// Write the Data struct to a file
     pub fn write(&mut self, path: &str) -> Result<(), Error> {
         let mut buffer_writer = BufWriter::new(th_msg!(File::create(path), Error::Io));
 
-        if let Err(err) = write_properties(&mut buffer_writer, self.header, &self.values) {
+        if let Err(err) = write_properties(&mut buffer_writer, self.header, &self.properties) {
             return Err(err);
         }
 
@@ -177,7 +177,7 @@ impl<'a> Properties<'a> {
     /// Read the Data struct from a file
     pub fn read(&mut self, path: &str) -> Result<(), Error> {
         let mut buffer_reader = BufReader::new(th_msg!(File::open(path), Error::Io));
-        self.values = read_properties(&mut buffer_reader, self.header)?;
+        self.properties = read_properties(&mut buffer_reader, self.header)?;
         Ok(())
     }
 
@@ -195,7 +195,7 @@ impl<'a> Properties<'a> {
             })
             .collect::<Vec<_>>();
 
-        self.values =
+        self.properties =
             read_properties_by_byte_position(&mut buffer_reader, self.header, &property_headers)?;
         Ok(())
     }
@@ -212,31 +212,47 @@ impl<'a> Properties<'a> {
             .filter_map(|position| self.header.get(*position))
             .collect::<Vec<_>>();
 
-        self.values =
+        self.properties =
             read_properties_by_byte_position(&mut buffer_reader, self.header, &property_headers)?;
         Ok(())
     }
 
     /// Get a value by index
     pub fn get(&self, index: usize) -> Option<&Data> {
-        self.values.get(index)
+        self.properties.get(index)
     }
 
     /// Get the values
     pub fn len(&self) -> usize {
-        self.values.len()
+        self.properties.len()
     }
 
     /// Get the values
     pub fn get_by_label(&self, label: &[u8]) -> Result<&Data, Error> {
         let label = th!(self.header.get_by_label(label), Error::LabelNotFound);
-        let label = th_none!(self.values.get(label.get_position()), Error::LabelNotFound);
+        let label = th_none!(
+            self.properties.get(label.get_position()),
+            Error::LabelNotFound
+        );
         Ok(label)
     }
 
     /// Get the values
-    pub fn get_values(&self) -> &Vec<Data> {
-        &self.values
+    pub fn get_properties(&self) -> &Vec<Data> {
+        &self.properties
+    }
+
+    /// Order the values by the original order
+    pub fn get_properties_original_position(&self) -> Vec<&Data> {
+        let mut new_order = Vec::new();
+
+        for index in 0..self.header.len() {
+            let prop = self.header.get_by_original_position(index).unwrap();
+            let data = self.properties.get(prop.get_position()).unwrap();
+            new_order.push(data);
+        }
+
+        new_order
     }
 }
 
@@ -736,7 +752,7 @@ mod tests {
 
         assert!(data.read(path).is_ok());
 
-        assert_eq!(values_new_order, *data.get_values());
+        assert_eq!(values_new_order, *data.get_properties());
 
         fs::remove_file(path).unwrap();
     }
@@ -765,7 +781,7 @@ mod tests {
 
         assert!(data.read(path).is_ok());
 
-        assert_eq!(values, *data.get_values());
+        assert_eq!(values, *data.get_properties());
 
         fs::remove_file(path).unwrap();
     }
@@ -808,7 +824,7 @@ mod tests {
             .map(|position| values.get(*position).unwrap().clone())
             .collect::<Vec<_>>();
 
-        assert_eq!(expected, *data.get_values());
+        assert_eq!(expected, *data.get_properties());
 
         fs::remove_file(path).unwrap();
     }
@@ -848,7 +864,7 @@ mod tests {
             Data::String("text".to_string()),
         ];
 
-        assert_eq!(expected, *data.get_values());
+        assert_eq!(expected, *data.get_properties());
 
         fs::remove_file(path).unwrap();
     }
