@@ -569,7 +569,7 @@ pub fn read_properties_by_byte_position(
                                     String::from_utf8(buffer).expect("UTF-8 decoding error"),
                                 );
                             } else {
-                                last_pos += (size + DEFAULT_SIZE_U32) as u64 + 1;
+                                last_pos += (size + DEFAULT_SIZE_U32) as u64;
                             }
                         }
                         None => return Err(Error::NoGetBytePosition),
@@ -771,6 +771,7 @@ mod tests {
     fn test_read_by_original_positions() {
         let header = Header::from(vec![
             ("varchar", DataType::Varchar(30)),
+            ("text", DataType::Text),
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
             ("i8", DataType::I8),
@@ -778,8 +779,9 @@ mod tests {
 
         let values = vec![
             DataValue::String(format!("{: <30}", "varchar")),
+            DataValue::String("text1".to_string()),
             DataValue::Boolean(true),
-            DataValue::String("text".to_string()),
+            DataValue::String("text2".to_string()),
             DataValue::I8(8),
         ];
 
@@ -789,7 +791,7 @@ mod tests {
 
         assert!(data.write(path).is_ok());
 
-        let property_headers_original_positions = vec![1, 0, 3];
+        let property_headers_original_positions = vec![0, 1, 3, 2];
 
         assert!(data
             .read_by_original_positions(path, &property_headers_original_positions)
