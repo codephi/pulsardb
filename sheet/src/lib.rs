@@ -59,6 +59,7 @@ pub enum Error {
     WriteHeader,
     LabelNotFound,
     NoGetBytePosition,
+    LabelExists(String),
 }
 
 /*

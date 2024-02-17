@@ -652,7 +652,7 @@ mod tests {
 
     #[test]
     fn test_write_and_read_properties() {
-        let header = Header::from(vec![
+        let header = Header::try_from(vec![
             ("varchar", DataType::Varchar(30)),
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
@@ -667,7 +667,7 @@ mod tests {
             ("u64", DataType::U64),
             ("f32", DataType::F32),
             ("f64", DataType::F64),
-        ]);
+        ]).unwrap();
 
         let values = vec![
             DataValue::String(format!("{: <30}", "varchar")),
@@ -705,12 +705,12 @@ mod tests {
 
     #[test]
     fn test_data_struct() {
-        let header = Header::from(vec![
+        let header = Header::try_from(vec![
             ("varchar", DataType::Varchar(30)),
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
             ("i8", DataType::I8),
-        ]);
+        ]).unwrap();
 
         let values = vec![
             DataValue::String(format!("{: <30}", "varchar")),
@@ -741,12 +741,12 @@ mod tests {
 
     #[test]
     fn test_data_struct_unsafe() {
-        let header = Header::from(vec![
+        let header = Header::try_from(vec![
             ("varchar", DataType::Varchar(30)),
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
             ("i8", DataType::I8),
-        ]);
+        ]).unwrap();
 
         let values = vec![
             DataValue::String(format!("{: <30}", "varchar")),
@@ -769,15 +769,17 @@ mod tests {
 
     #[test]
     fn test_read_by_original_positions() {
-        let header = Header::from(vec![
+        let header = Header::try_from(vec![
+            ("text", DataType::Text),
             ("varchar", DataType::Varchar(30)),
             ("text", DataType::Text),
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
             ("i8", DataType::I8),
-        ]);
+        ]).unwrap();
 
         let values = vec![
+            DataValue::String("text0".to_string()),
             DataValue::String(format!("{: <30}", "varchar")),
             DataValue::String("text1".to_string()),
             DataValue::Boolean(true),
@@ -809,12 +811,12 @@ mod tests {
 
     #[test]
     fn test_read_by_positions(){
-        let header = Header::from(vec![
+        let header = Header::try_from(vec![
             ("varchar", DataType::Varchar(30)),
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
             ("i8", DataType::I8),
-        ]);
+        ]).unwrap();
 
         let values = vec![
             DataValue::String(format!("{: <30}", "varchar")),

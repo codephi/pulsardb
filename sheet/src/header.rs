@@ -225,7 +225,11 @@ impl BuilderHeader {
     }
 
     /// Add a new property to the header
-    pub fn add(&mut self, label: Vec<u8>, data_type: DataType) {
+    pub fn add(&mut self, label: Vec<u8>, data_type: DataType) -> Result<(), Error> {
+        if self.headers.iter().any(|prop| prop.label == label) {
+            return Err(Error::LabelExists(String::from_utf8(label).unwrap()));
+        }
+
         let is_dynamic_size = data_type.is_dynamic_size();
         let (position, original_position) = if is_dynamic_size {
             (
@@ -254,6 +258,8 @@ impl BuilderHeader {
 
             self.headers.push(prop);
         }
+
+        Ok(())
     }
 
     /// Build the header
@@ -411,15 +417,17 @@ impl Header {
 ///     ("height", DataType::F64),
 ///   ]);
 /// ```
-impl<'a> From<Vec<(&str, DataType)>> for Header {
-    fn from(headers: Vec<(&str, DataType)>) -> Self {
+impl<'a> TryFrom<Vec<(&str, DataType)>> for Header {
+    type Error = Error;
+
+    fn try_from(headers: Vec<(&str, DataType)>) -> Result<Self, Self::Error> {
         let mut buidler = BuilderHeader::new();
 
-        headers.iter().for_each(|(label, data_type)| {
-            buidler.add(label.as_bytes().to_vec(), data_type.clone())
-        });
+        for (label, data_type) in headers {
+            buidler.add(label.as_bytes().to_vec(), data_type)?;
+        }
 
-        buidler.build()
+        Ok(buidler.build())
     }
 }
 
@@ -521,12 +529,13 @@ mod tests {
 
     #[test]
     fn test_write_and_reader_header() {
-        let original_properties = Header::from(vec![
+        let original_properties = Header::try_from(vec![
             ("varchar", DataType::Varchar(10)),
             ("text", DataType::Text),
             ("i32", DataType::I32),
             ("f64", DataType::F64),
-        ]);
+        ])
+        .unwrap();
 
         let varchar_prop = original_properties
             .get_by_label("varchar".as_bytes())
@@ -569,12 +578,13 @@ mod tests {
 
     #[test]
     fn test_header_builder() {
-        let mut header = Header::from(vec![
+        let mut header = Header::try_from(vec![
             ("varchar", DataType::Varchar(10)),
             ("text", DataType::Text),
             ("i32", DataType::I32),
             ("boolean", DataType::Boolean),
-        ]);
+        ])
+        .unwrap();
 
         let varchar_prop = header.get_by_label("varchar".as_bytes()).unwrap();
         let text_prop = header.get_by_label("text".as_bytes()).unwrap();
@@ -614,13 +624,14 @@ mod tests {
 
     #[test]
     fn test_bytes_position() {
-        let header = Header::from(vec![
+        let header = Header::try_from(vec![
             ("varchar", DataType::Varchar(10)),
             ("text", DataType::Text),
             ("text2", DataType::Text),
             ("i32", DataType::I32),
             ("boolean", DataType::Boolean),
-        ]);
+        ])
+        .unwrap();
 
         assert_eq!(header.headers.get(0).unwrap().get_byte_position(), Some(0));
         assert_eq!(header.headers.get(1).unwrap().get_byte_position(), Some(10));
@@ -631,5 +642,13 @@ mod tests {
         assert_eq!(header.headers.get(3).unwrap().get_byte_position(), None);
         assert_eq!(header.headers.get(4).unwrap().get_byte_position(), None);
         assert_eq!(header.get_dynamic_size_positions(), vec![3, 4]);
+    }
+
+    #[test]
+    fn test_label_exists() {
+        let mut builder = BuilderHeader::new();
+
+        assert!(builder.add("varchar".as_bytes().to_vec(), DataType::Varchar(10)).is_ok());
+        assert!(builder.add("varchar".as_bytes().to_vec(), DataType::Varchar(10)).is_err());
     }
 }
