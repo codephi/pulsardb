@@ -8,6 +8,8 @@ members = [
     "valu3/valu3",
     "valu3/valu3_derive",
     "valu3/valu3_parquet",
-    "sheet",
+    "sheet", 
+    "sheet_fs", 
+    "sdk",
 ]
 resolver = "2"

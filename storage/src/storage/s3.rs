@@ -27,8 +27,13 @@ impl Storage for S3 {
     type Error = Error;
 
     /// Create a new instance of `Bucket` with the given bucket name.
-    fn builder(bucket: String) -> Pin<Box<dyn Future<Output = Self> + Send>> {
-        Box::pin(async move {
+    fn try_builder(
+        bucket: &str,
+    ) -> Result<Pin<Box<dyn Future<Output = Result<Self, Self::Error>> + Send>>, Self::Error>
+    where
+        Self: Sized,
+    {
+        Ok(Box::pin(async move {
             let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
             let config = aws_config::defaults(BehaviorVersion::latest())
                 .region(region_provider)
@@ -36,11 +41,11 @@ impl Storage for S3 {
                 .await;
             let client = Client::new(&config);
 
-            Self {
-                bucket: bucket,
+            Ok(Self {
+                bucket: bucket.to_string(),
                 client,
-            }
-        })
+            })
+        }))
     }
 
     /// List all objects in the bucket.

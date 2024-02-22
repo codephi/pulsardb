@@ -1,12 +1,65 @@
-//! # Sheet
+//! # Symphony Sheet
 //!
-//! Sheet is a library to read and write data to a binary file.
-//! # Features
-//! - Read and write header to a binary file
-//! - Read and write properties to a binary file
-//! - Read full binary properties file.
-//! - Provides objective reading, capturing only the necessary properties.
+//! Sheet is a Rust library designed for efficient and safe reading and writing of data in binary files. 
+//! Focused on simplicity and performance, Sheet enables developers to handle complex data structures 
+//! persisted on disk, optimizing for both read and write operations.
 //!
+//! ## Key Features
+//!
+//! - **Header and Properties Manipulation**: Define and access complex data structures through headers 
+//!   and properties, enabling efficient data read and write.
+//! - **Objective Reading**: Allows for selective reading of specific properties from a file, avoiding 
+//!   the need to process irrelevant data.
+//! - **Dynamic Writing**: Supports adding new properties to existing files without compromising data 
+//!   integrity or performance.
+//! - **Flexible Typing**: Supports a wide range of data types, from primitive types like integers and 
+//!   booleans to strings and floating-point types, making it easy to store diverse data.
+//!
+//! ## Use Cases
+//!
+//! - Efficient storage and retrieval of application settings or user data in binary formats.
+//! - Implementation of custom file systems or specific file formats for games and applications requiring 
+//!   fast access to large volumes of data.
+//! - Creation of serialization/deserialization tools that need fine control over data layout on disk.
+//!
+//! ## Basic Example
+//!
+//! ### Writing Data
+//!
+//! ```rust
+//! use sheet::{BuilderHeader, BuilderProperties, DataType, Data};
+//!
+//! let mut builder_header = BuilderHeader::new();
+//! builder_header.add("name".into(), DataType::Varchar(50)).unwrap();
+//! builder_header.add("age".into(), DataType::U8).unwrap();
+//! let header = builder_header.build();
+//!
+//! header.write("config_header.bin").unwrap();
+//!
+//! let mut builder_properties = BuilderProperties::new(&header);
+//! builder_properties.add(Data::String("John Doe".into()));
+//! builder_properties.add(Data::U8(30));
+//! let properties = builder_properties.build();
+//!
+//! properties.write("config_properties.bin").unwrap();
+//! ```
+//!
+//! ### Reading Data
+//!
+//! ```rust
+//! use sheet::{Header, Properties};
+//!
+//! let mut header = Header::new();
+//! header.read("config_header.bin").unwrap();
+//!
+//! let mut properties = Properties::new(&header);
+//! properties.read("config_properties.bin").unwrap();
+//!
+//! let name = properties.get_by_label("name".as_bytes()).unwrap();
+//! let age = properties.get_by_label("age".as_bytes()).unwrap();
+//!
+//! println!("Name: {}, Age: {}", name, age);
+//! ```
 
 use std::io;
 
@@ -61,7 +114,6 @@ pub const DEFAULT_SIZE_UNDEFINED: usize = 0;
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
-    WriteInvalidDataType,
     WriteInvalidDataTypeNumber,
     WriteInvalidDataTypeString(String),
     ReadInvalidDataType,
@@ -80,61 +132,17 @@ mod tests {
     use std::fs;
 
     use super::*;
-
     #[test]
-    fn test_write_header_and_properties() {
-        let header_path = "test_write_header_and_properties_header.bin";
-        let properties_path = "test_write_header_and_properties_properties.bin";
-
-        let mut builder_header = BuilderHeader::new();
-
-        builder_header.add("name".into(), DataType::Varchar(4));
-        builder_header.add("age".into(), DataType::U8);
-        builder_header.add("description".into(), DataType::Text);
-        builder_header.add("active".into(), DataType::Boolean);
-
-        let mut header = builder_header.build();
-
-        header.write(header_path).unwrap();
-
-        let header_values = header.get_headers().clone();
-
-        header.read(header_path).unwrap();
-
-        assert_eq!(&header_values, header.get_headers());
-
-        let mut builder_properties = BuilderProperties::new(&header);
-
-        builder_properties.add(Data::String("John".into()));
-        builder_properties.add(Data::U8(18));
-        builder_properties.add(Data::String("This is a description".into()));
-        builder_properties.add(Data::Boolean(true));
-
-        let mut properties = builder_properties.build();
-
-        properties.write(properties_path).unwrap();
-
-        let properties_values = properties.get_properties().clone();
-
-        properties.read(properties_path).unwrap();
-
-        assert_eq!(&properties_values, properties.get_properties());
-
-        fs::remove_file(header_path).unwrap();
-        fs::remove_file(properties_path).unwrap();
-    }
-
-    #[test]
-    fn test_read_properties() {
+    fn test_write_and_read_header_and_properties() {
         let header_path = "test_read_properties_header.bin";
         let properties_path = "test_read_properties_properties.bin";
 
         let mut builder_header = BuilderHeader::new();
 
-        builder_header.add("name".into(), DataType::Varchar(4));
-        builder_header.add("age".into(), DataType::U8);
-        builder_header.add("description".into(), DataType::Text);
-        builder_header.add("active".into(), DataType::Boolean);
+        builder_header.add("name".into(), DataType::Varchar(4)).unwrap();
+        builder_header.add("age".into(), DataType::U8).unwrap();
+        builder_header.add("description".into(), DataType::Text).unwrap();
+        builder_header.add("active".into(), DataType::Boolean).unwrap();
 
         let mut header = builder_header.build();
 
@@ -162,10 +170,6 @@ mod tests {
         properties.read(properties_path).unwrap();
 
         assert_eq!(&properties_values, properties.get_properties());
-
-        ////////////////////////////////////////////////////////////////////////
-        // this test start here
-        ////////////////////////////////////////////////////////////////////////
 
         let mut header = Header::new();
         header.read(header_path).unwrap();
