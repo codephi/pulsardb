@@ -26,6 +26,28 @@ pub enum Data {
     F64(f64),
 }
 
+impl Data {
+    pub fn to_string(&self) -> String {
+        match self {
+            Data::Null => "NULL".to_string(),
+            Data::Boolean(value) => value.to_string(),
+            Data::String(value) => value.to_string(),
+            Data::U8(value) => value.to_string(),
+            Data::U16(value) => value.to_string(),
+            Data::U32(value) => value.to_string(),
+            Data::U64(value) => value.to_string(),
+            Data::U128(value) => value.to_string(),
+            Data::I8(value) => value.to_string(),
+            Data::I16(value) => value.to_string(),
+            Data::I32(value) => value.to_string(),
+            Data::I64(value) => value.to_string(),
+            Data::I128(value) => value.to_string(),
+            Data::F32(value) => value.to_string(),
+            Data::F64(value) => value.to_string(),
+        }
+    }
+}
+
 /// Builder for Data struct
 /// # Example
 /// ```
@@ -161,6 +183,16 @@ impl<'a> Properties<'a> {
             properties: Vec::with_capacity(header.len()),
         }
     }
+
+    pub fn get_sort_key_property(&self) -> &Data {
+        let position = self.header.get_sort_key_position();
+
+        match self.properties.get(position) {
+            Some(value) => value,
+            None => panic!("Sort key not found"),
+        }
+    }
+
     /// Write the Data struct to a file
     pub fn write(&mut self, path: &str) -> Result<(), Error> {
         let mut buffer_writer = BufWriter::new(th_msg!(File::create(path), Error::Io));
@@ -365,6 +397,7 @@ pub fn write_properties(
             Data::String(data) => match prop.get_data_type() {
                 DataType::Varchar(size) => {
                     let size = *size;
+
                     if data.len() > size as usize {
                         return Err(Error::VarcharSize);
                     }
@@ -478,7 +511,7 @@ pub fn read_properties(
     buffer_reader: &mut BufReader<File>,
     header: &Header,
 ) -> Result<Vec<Data>, Error> {
-    let mut values = Vec::new();
+    let mut values = Vec::with_capacity(header.len());
 
     for prop in header.headers_iter() {
         let value = match prop.get_data_type() {

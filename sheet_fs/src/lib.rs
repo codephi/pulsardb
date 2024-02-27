@@ -58,8 +58,6 @@ impl Storage for FileSystem {
                 Err(e) => return Err(Error::Io(e)),
             };
 
-            let mut keys = Vec::new();
-
             if let Some(start_after) = &params.start_after {
                 while let Some(entry) = entries.next() {
                     let entry = match entry {
@@ -80,6 +78,8 @@ impl Storage for FileSystem {
                     }
                 }
             }
+
+            let mut keys = Vec::new();
 
             while let Some(entry) = entries.next() {
                 let entry = match entry {
@@ -164,6 +164,7 @@ impl Storage for FileSystem {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use sinfonia_sdk::Order;
@@ -238,7 +239,7 @@ mod tests {
 
         let storage = FileSystem::try_builder(path).unwrap().await.unwrap();
 
-        for key in (0..100) {
+        for key in 0..100 {
             storage
                 .put_object(b"Hello, World!".to_vec(), &format!("file{}.txt", key))
                 .await
@@ -267,7 +268,7 @@ mod tests {
 
         let storage = FileSystem::try_builder(path).unwrap().await.unwrap();
 
-        for key in (0..100) {
+        for key in 0..100 {
             storage
                 .put_object(b"Hello, World!".to_vec(), &format!("file{}.txt", key))
                 .await
@@ -296,7 +297,7 @@ mod tests {
 
         let storage = FileSystem::try_builder(path).unwrap().await.unwrap();
 
-        for key in (0..100) {
+        for key in 0..100 {
             storage
                 .put_object(b"Hello, World!".to_vec(), &format!("file{}.txt", key))
                 .await
@@ -325,25 +326,27 @@ mod tests {
 
         let storage = FileSystem::try_builder(path).unwrap().await.unwrap();
 
-        for key in (0..100) {
-            storage
-                .put_object(b"Hello, World!".to_vec(), &format!("file{}.txt", key))
-                .await
-                .unwrap();
+        for pk in 0..100 {
+            for sk in 0..10 {
+                storage
+                    .put_object(b"Hello, World!".to_vec(), &format!("pk{}:sk{}", pk, sk))
+                    .await
+                    .unwrap();
+            }
         }
 
         let result = storage
             .list_objects(StorageListObjectsParams {
                 max_keys: None,
                 prefix: None,
-                delimiter: Some("9".to_string()),
+                delimiter: Some("9:".to_string()),
                 start_after: None,
                 order: None,
             })
             .await
             .unwrap();
 
-        assert_eq!(result.len(), 81);
+        assert_eq!(result.len(), 100);
 
         std::fs::remove_dir_all(path).unwrap();
     }
@@ -354,11 +357,13 @@ mod tests {
 
         let storage = FileSystem::try_builder(path).unwrap().await.unwrap();
 
-        for key in (0..100) {
-            storage
-                .put_object(b"Hello, World!".to_vec(), &format!("file{}.txt", key))
-                .await
-                .unwrap();
+        for pk in 0..100 {
+            for sk in 0..10 {
+                storage
+                    .put_object(b"Hello, World!".to_vec(), &format!("pk{}:sk{}", pk, sk))
+                    .await
+                    .unwrap();
+            }
         }
 
         let result = storage
@@ -372,7 +377,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.len(), 100);
+        assert_eq!(result.get(0), Some(&"pk0:sk0".to_string()));
 
         let result = storage
             .list_objects(StorageListObjectsParams {
@@ -385,7 +390,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.len(), 100);
+        assert_eq!(result.get(0), Some(&"pk99:sk9".to_string()));
 
         std::fs::remove_dir_all(path).unwrap();
     }

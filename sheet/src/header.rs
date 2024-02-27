@@ -210,6 +210,7 @@ pub struct BuilderHeader {
     is_dynamic_size: bool,
     next_byte_position: usize,
     dynamic_size_positions: Vec<usize>,
+    sort_key_position: usize,
 }
 
 impl BuilderHeader {
@@ -221,7 +222,12 @@ impl BuilderHeader {
             is_dynamic_size: false,
             next_byte_position: 0,
             dynamic_size_positions: Vec::new(),
+            sort_key_position: 0,
         }
+    }
+
+    pub fn set_sort_key_position(&mut self, position: usize) {
+        self.sort_key_position = position;
     }
 
     /// Add a new property to the header
@@ -289,6 +295,7 @@ impl BuilderHeader {
                 None
             },
             dynamic_size_positions: self.dynamic_size_positions.clone(),
+            sort_key_position: self.sort_key_position,
         }
     }
 
@@ -357,17 +364,31 @@ pub struct Header {
     is_dynamic_size: bool,
     last_byte_position_no_dynamic: Option<usize>,
     dynamic_size_positions: Vec<usize>,
+    sort_key_position: usize,
 }
 
 impl Header {
     /// Create a new Header
     pub fn new() -> Self {
-        Header {
+        Self {
             headers: Vec::new(),
             is_dynamic_size: false,
             last_byte_position_no_dynamic: None,
             dynamic_size_positions: Vec::new(),
+            sort_key_position: 0,
         }
+    }
+
+    pub fn get_sort_key(&mut self) -> DataType {
+        self.headers[self.sort_key_position].data_type.clone()
+    }
+
+    pub fn get_sort_key_position(&self) -> usize {
+        self.sort_key_position
+    }
+
+    pub fn get_sort_key_label(&self) -> &[u8] {
+        &self.headers[self.sort_key_position].label
     }
 
     /// Create a new Header
@@ -493,8 +514,15 @@ pub fn write_header(
     buffer_writer: &mut BufWriter<File>,
     headers: std::slice::Iter<'_, PropertyHeader>,
 ) -> Result<(), Error> {
+    // Write total size
+    th_msg!(
+        buffer_writer.write_all(&(headers.len() as u32).to_le_bytes()),
+        Error::Io
+    );
+
     for prop in headers {
         let data_type_byte = prop.data_type.clone().into();
+
         // Write original position
         th_msg!(
             buffer_writer.write_all(&(prop.original_position as u32).to_le_bytes()),
@@ -527,7 +555,11 @@ pub fn write_header(
 /// let properties = read_header(buffer_reader).unwrap();
 /// ```
 pub fn read_header(buffer_reader: &mut BufReader<File>) -> Result<Vec<PropertyHeader>, Error> {
-    let mut properties = Vec::new();
+    let total_properties = th_msg!(
+        buffer_reader.read_u32::<byteorder::LittleEndian>(),
+        Error::Io
+    );
+    let mut properties = Vec::with_capacity(total_properties as usize);
 
     while let Ok(original_position_byte) = buffer_reader.read_u32::<byteorder::LittleEndian>() {
         let original_position = original_position_byte as usize;

@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 byteorder = "1.4.3"
+uuid = { version="1.7.0", features=["v4"]}

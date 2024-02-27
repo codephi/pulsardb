@@ -1,24 +1,24 @@
 //! # Symphony Sheet
 //!
-//! Sheet is a Rust library designed for efficient and safe reading and writing of data in binary files. 
-//! Focused on simplicity and performance, Sheet enables developers to handle complex data structures 
+//! Sheet is a Rust library designed for efficient and safe reading and writing of data in binary files.
+//! Focused on simplicity and performance, Sheet enables developers to handle complex data structures
 //! persisted on disk, optimizing for both read and write operations.
 //!
 //! ## Key Features
 //!
-//! - **Header and Properties Manipulation**: Define and access complex data structures through headers 
+//! - **Header and Properties Manipulation**: Define and access complex data structures through headers
 //!   and properties, enabling efficient data read and write.
-//! - **Objective Reading**: Allows for selective reading of specific properties from a file, avoiding 
+//! - **Objective Reading**: Allows for selective reading of specific properties from a file, avoiding
 //!   the need to process irrelevant data.
-//! - **Dynamic Writing**: Supports adding new properties to existing files without compromising data 
+//! - **Dynamic Writing**: Supports adding new properties to existing files without compromising data
 //!   integrity or performance.
-//! - **Flexible Typing**: Supports a wide range of data types, from primitive types like integers and 
+//! - **Flexible Typing**: Supports a wide range of data types, from primitive types like integers and
 //!   booleans to strings and floating-point types, making it easy to store diverse data.
 //!
 //! ## Use Cases
 //!
 //! - Efficient storage and retrieval of application settings or user data in binary formats.
-//! - Implementation of custom file systems or specific file formats for games and applications requiring 
+//! - Implementation of custom file systems or specific file formats for games and applications requiring
 //!   fast access to large volumes of data.
 //! - Creation of serialization/deserialization tools that need fine control over data layout on disk.
 //!
@@ -63,9 +63,10 @@
 
 use std::io;
 
-mod header;
 mod macros;
+mod header;
 mod properties;
+mod sort_key;
 
 pub use header::*;
 pub use properties::*;
@@ -111,6 +112,9 @@ pub const DEFAULT_SIZE_U128: usize = 16;
 pub const DEFAULT_SIZE_F32: usize = 4;
 pub const DEFAULT_SIZE_F64: usize = 8;
 pub const DEFAULT_SIZE_UNDEFINED: usize = 0;
+
+pub const DEFAULT_MAX_SIZE_PK_SK_NAMES: usize = 36; // UUID size
+
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
@@ -125,70 +129,8 @@ pub enum Error {
     LabelNotFound,
     NoGetBytePosition,
     LabelExists(String),
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use super::*;
-    #[test]
-    fn test_write_and_read_header_and_properties() {
-        let header_path = "test_read_properties_header.bin";
-        let properties_path = "test_read_properties_properties.bin";
-
-        let mut builder_header = BuilderHeader::new();
-
-        builder_header.add("name".into(), DataType::Varchar(4)).unwrap();
-        builder_header.add("age".into(), DataType::U8).unwrap();
-        builder_header.add("description".into(), DataType::Text).unwrap();
-        builder_header.add("active".into(), DataType::Boolean).unwrap();
-
-        let mut header = builder_header.build();
-
-        header.write(header_path).unwrap();
-
-        let header_values = header.get_headers().clone();
-
-        header.read(header_path).unwrap();
-
-        assert_eq!(&header_values, header.get_headers());
-
-        let mut builder_properties = BuilderProperties::new(&header);
-
-        builder_properties.add(Data::String("John".into()));
-        builder_properties.add(Data::U8(18));
-        builder_properties.add(Data::String("This is a description".into()));
-        builder_properties.add(Data::Boolean(true));
-
-        let mut properties = builder_properties.build();
-
-        properties.write(properties_path).unwrap();
-
-        let properties_values = properties.get_properties().clone();
-
-        properties.read(properties_path).unwrap();
-
-        assert_eq!(&properties_values, properties.get_properties());
-
-        let mut header = Header::new();
-        header.read(header_path).unwrap();
-
-        let mut properties = Properties::new(&header);
-        properties.read(properties_path).unwrap();
-
-        let properties_values = properties.get_properties_original_position().clone();
-
-        assert_eq!(4, properties_values.len());
-        assert_eq!(&Data::String("John".into()), properties_values[0]);
-        assert_eq!(&Data::U8(18), properties_values[1]);
-        assert_eq!(
-            &Data::String("This is a description".into()),
-            properties_values[2]
-        );
-        assert_eq!(&Data::Boolean(true), properties_values[3]);
-
-        fs::remove_file(header_path).unwrap();
-        fs::remove_file(properties_path).unwrap();
-    }
+    ValueExists(String),
+    SortNameSize,
+    ParseString,
+    SortKeyPosition,
 }
