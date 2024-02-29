@@ -45,3 +45,40 @@ macro_rules! th_none {
         }
     };
 }
+
+#[macro_export]
+macro_rules! uuid {
+    () => {
+        uuid::Uuid::new_v4().as_simple().to_string().as_bytes().to_vec() 
+    };
+}
+
+#[macro_export]
+macro_rules! uuid_string {
+    () => {
+        uuid::Uuid::new_v4().as_simple().to_string()
+    };
+}
+
+#[macro_export]
+macro_rules! index_item {
+    ($uuid:expr, $prop:expr, $total_size:expr) => {
+        {
+            let mut item = vec![0u8; $total_size];
+            item[..UUID_SIZE].copy_from_slice(&$uuid);
+            item[UUID_SIZE..(UUID_SIZE + $prop.len())].copy_from_slice($prop);
+
+            item
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! create_index_item {
+    ($prop:expr, $total_size:expr) => {
+        {
+            let uuid = crate::uuid!();
+            crate::index_item!(uuid, $prop, $total_size)
+        }
+    };
+}

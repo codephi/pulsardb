@@ -66,7 +66,7 @@ use std::io;
 mod macros;
 mod header;
 mod properties;
-mod sort_key;
+mod index;
 
 pub use header::*;
 pub use properties::*;
@@ -113,7 +113,7 @@ pub const DEFAULT_SIZE_F32: usize = 4;
 pub const DEFAULT_SIZE_F64: usize = 8;
 pub const DEFAULT_SIZE_UNDEFINED: usize = 0;
 
-pub const DEFAULT_MAX_SIZE_PK_SK_NAMES: usize = 36; // UUID size
+pub const UUID_SIZE: usize = 32;
 
 #[derive(Debug)]
 pub enum Error {
