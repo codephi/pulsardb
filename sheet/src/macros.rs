@@ -65,8 +65,8 @@ macro_rules! index_item {
     ($uuid:expr, $prop:expr, $total_size:expr) => {
         {
             let mut item = vec![0u8; $total_size];
-            item[..UUID_SIZE].copy_from_slice(&$uuid);
-            item[UUID_SIZE..(UUID_SIZE + $prop.len())].copy_from_slice($prop);
+            item[..$prop.len()].copy_from_slice($prop);
+            item[$prop.len()..(UUID_SIZE + $prop.len())].copy_from_slice(&$uuid);
 
             item
         }
