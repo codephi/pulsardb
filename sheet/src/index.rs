@@ -114,6 +114,72 @@ pub fn add_item_index(
     Ok(())
 }
 
+// TODO: precisa refatorar para melhorar o desempenho da remoção
+pub fn remove_item_index(
+    buffer_writer: &mut BufWriter<&File>,
+    buffer_reader: &mut BufReader<&File>,
+    item: Vec<u8>,
+    size_index_item: u8,
+) -> Result<(), Error> {
+    let total_size = th_msg!(
+        buffer_reader.read_u32::<byteorder::LittleEndian>(),
+        Error::Io
+    ) as usize;
+
+    let mut index = Vec::with_capacity(total_size * size_index_item as usize);
+
+    let mut position = total_size - 1;
+
+    let mut target: Vec<u8> = vec![0u8; size_index_item as usize];
+    target[..item.len()].copy_from_slice(&item);
+
+    for pos in 0..total_size {
+        let mut buffer = vec![0u8; size_index_item as usize];
+        th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
+
+        if target == buffer {
+            position = pos;
+            continue;
+        }
+
+        index.append(&mut buffer);
+    }
+
+    th_msg!(buffer_writer.seek(std::io::SeekFrom::Start(0)), Error::Io);
+
+    th_msg!(
+        buffer_writer.write_all(&(total_size as u32 - 1).to_le_bytes()),
+        Error::Io
+    );
+
+    th_msg!(
+        buffer_writer.seek(std::io::SeekFrom::Start(
+            DEFAULT_SIZE_U32 as u64
+        )),
+        Error::Io
+    );
+
+    th_msg!(buffer_writer.write_all(&index), Error::Io);
+
+    Ok(())
+}
+
+
+#[derive(Debug)]
+pub enum ReadIndexOption {
+    StartWith(&'static str),
+    EndWith(&'static str),
+    StartAndEndWith(&'static str, &'static str),
+    Contains(&'static str),
+    NotContains(&'static str),
+    Equal(&'static str),
+    NotEqual(&'static str),
+    GranterThan(&'static str),
+    LessThan(&'static str),
+    GranterThanOrEqual(&'static str),
+    LessThanOrEqual(&'static str),
+    None,
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,7 +312,68 @@ mod tests {
                 .collect::<Vec<String>>()
         };
 
-        assert_eq!(index_read, compare);
+        assert_eq!(compare, index_read);
+
+        remove_file(file_name).unwrap();
+    }
+
+    #[test]
+    fn test_remove_item_index() {
+        let file_name = "test_remove_item_index";
+        let file = File::create(file_name).unwrap();
+        let mut buffer_writer = BufWriter::new(&file);
+        let size_index_item = UUID_SIZE + 5;
+
+        let index = vec![
+            create_index_item!(b"1a", size_index_item),
+            create_index_item!(b"2b", size_index_item),
+            create_index_item!(b"3c", size_index_item),
+            create_index_item!(b"4e", size_index_item),
+        ];
+
+        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+
+        buffer_writer.flush().unwrap();
+
+        let file = File::options()
+            .write(true)
+            .read(true)
+            .open(file_name)
+            .unwrap();
+        let mut buffer_reader = BufReader::new(&file);
+        let mut buffer_writer = BufWriter::new(&file);
+
+        remove_item_index(
+            &mut buffer_writer,
+            &mut buffer_reader,
+            index.get(1).unwrap().clone(),
+            size_index_item as u8,
+        )
+        .unwrap();
+
+        buffer_writer.flush().unwrap();
+
+        let file = File::open(file_name).unwrap();
+
+        let mut buffer_reader = BufReader::new(&file);
+
+        let index_read = {
+            let data = read_index_raw(&mut buffer_reader, size_index_item as u8).unwrap();
+            data.iter()
+                .map(|item| String::from_utf8(item.clone()).unwrap())
+                .collect::<Vec<String>>()
+        };
+
+        let compare = {
+            let mut index = index.clone();
+            index.remove(1);
+            index
+                .iter()
+                .map(|item| String::from_utf8(item.clone()).unwrap())
+                .collect::<Vec<String>>()
+        };
+
+        assert_eq!(compare, index_read);
 
         remove_file(file_name).unwrap();
     }
