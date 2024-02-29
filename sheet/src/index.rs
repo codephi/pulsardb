@@ -1,4 +1,4 @@
-use crate::{index, th_msg, Error, DEFAULT_SIZE_U32};
+use crate::{ th_msg, Error, DEFAULT_SIZE_U32};
 use byteorder::ReadBytesExt;
 use std::io::Read;
 use std::io::{BufReader, Seek, Write};
@@ -67,21 +67,31 @@ pub fn add_item_index(
         Error::Io
     ) as usize;
 
-    let max_position = total_size - 1;
-    let mut position = max_position;
-    let mut total_items_after = max_position - position;
-    let mut index = vec![item.clone()];
+    let mut index ={
+        let mut buffer: Vec<u8> = vec![0u8; size_index_item as usize];
+        buffer[..item.len()].copy_from_slice(&item);
 
+        let mut vec = Vec::with_capacity((total_size + 1) * size_index_item as usize);
+        vec.append(&mut buffer);
+        vec
+    };
+
+    let mut find: bool = false;
+    let mut position = total_size - 1;
+
+    // TODO: no futuro, testar a performance com o rayon
+    // talvez seja interessante paralelizar a busca caso tenha muitos itens
     for pos in 0..total_size {
         let mut buffer = vec![0u8; size_index_item as usize];
         th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
         if item < buffer {
-            if index.len() == 1 {
+            if !find {
                 position = pos;
+                find = true;
             }
 
-            index.push(buffer);
+            index.append(&mut buffer);
         }
     }
 
@@ -99,11 +109,7 @@ pub fn add_item_index(
         Error::Io
     );
 
-    for item in index {
-        let mut buffer = vec![0u8; size_index_item as usize];
-        buffer[..item.len()].copy_from_slice(&item);
-        th_msg!(buffer_writer.write_all(&buffer), Error::Io);
-    }
+    th_msg!(buffer_writer.write_all(&index), Error::Io);
 
     Ok(())
 }
