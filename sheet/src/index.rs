@@ -1,4 +1,4 @@
-use crate::{ th_msg, Error, DEFAULT_SIZE_U32};
+use crate::{th_msg, Error, DEFAULT_SIZE_U32, UUID_SIZE};
 use byteorder::ReadBytesExt;
 use std::io::Read;
 use std::io::{BufReader, Seek, Write};
@@ -67,7 +67,7 @@ pub fn add_item_index(
         Error::Io
     ) as usize;
 
-    let mut index ={
+    let mut index = {
         let mut buffer: Vec<u8> = vec![0u8; size_index_item as usize];
         buffer[..item.len()].copy_from_slice(&item);
 
@@ -153,9 +153,7 @@ pub fn remove_item_index(
     );
 
     th_msg!(
-        buffer_writer.seek(std::io::SeekFrom::Start(
-            DEFAULT_SIZE_U32 as u64
-        )),
+        buffer_writer.seek(std::io::SeekFrom::Start(DEFAULT_SIZE_U32 as u64)),
         Error::Io
     );
 
@@ -164,22 +162,168 @@ pub fn remove_item_index(
     Ok(())
 }
 
-
 #[derive(Debug)]
 pub enum ReadIndexOption {
-    StartWith(&'static str),
-    EndWith(&'static str),
-    StartAndEndWith(&'static str, &'static str),
-    Contains(&'static str),
-    NotContains(&'static str),
-    Equal(&'static str),
-    NotEqual(&'static str),
-    GranterThan(&'static str),
-    LessThan(&'static str),
-    GranterThanOrEqual(&'static str),
-    LessThanOrEqual(&'static str),
+    StartWith(&'static Vec<u8>),
+    EndWith(&'static Vec<u8>),
+    StartAndEndWith(&'static Vec<u8>, &'static Vec<u8>),
+    Contains(&'static Vec<u8>),
+    NotContains(&'static Vec<u8>),
+    Equal(&'static Vec<u8>),
+    NotEqual(&'static Vec<u8>),
+    GranterThan(&'static Vec<u8>),
+    LessThan(&'static Vec<u8>),
+    GranterThanOrEqual(&'static Vec<u8>),
+    LessThanOrEqual(&'static Vec<u8>),
     None,
 }
+
+#[derive(Debug)]
+pub struct IndexItem {
+    pub item: Vec<u8>,
+    pub hash: Vec<u8>,
+    pub position: u32,
+}
+
+pub fn read_index_options(
+    buffer_reader: &mut BufReader<&File>,
+    size_index_item: u8,
+    option: ReadIndexOption,
+) -> Result<Vec<IndexItem>, Error> {
+    let size_index_item_u32 = size_index_item as u32;
+    let size_item: usize = size_index_item as usize - UUID_SIZE;
+    let total_size = th_msg!(
+        buffer_reader.read_u32::<byteorder::LittleEndian>(),
+        Error::Io
+    ) as usize;
+
+    let mut index: Vec<IndexItem> = Vec::with_capacity(total_size);
+
+    for pos in 0..total_size {
+        let mut item = vec![0u8; size_item];
+        th_msg!(buffer_reader.read_exact(&mut item), Error::Io);
+
+        let mut hash = vec![0u8; UUID_SIZE];
+        th_msg!(buffer_reader.read_exact(&mut hash), Error::Io);
+
+        match option {
+            ReadIndexOption::StartWith(start) => {
+                if item.starts_with(start) {
+                    index.push(IndexItem {
+                        item,
+                        hash,
+                        position: pos as u32,
+                    });
+                }
+            }
+            ReadIndexOption::EndWith(end) => {
+                if item.ends_with(end) {
+                    index.push(IndexItem {
+                        item,
+                        hash,
+                        position: pos as u32,
+                    });
+                }
+            }
+            ReadIndexOption::StartAndEndWith(start, end) => {
+                if item.starts_with(start) && item.ends_with(end) {
+                    index.push(IndexItem {
+                        item,
+                        hash,
+                        position: pos as u32,
+                    });
+                }
+            }
+            ReadIndexOption::Contains(contains) => {
+                if item.contains(contains) {
+                    index.push(IndexItem {
+                        item,
+                        hash,
+                        position: pos as u32,
+                    });
+                }
+            }
+            ReadIndexOption::NotContains(not_contains) => {
+                if !item.contains(not_contains) {
+                    index.push(IndexItem {
+                        item,
+                        hash,
+                        position: pos as u32,
+                    });
+                }
+            }
+            ReadIndexOption::Equal(equal) => {
+                if item == equal {
+                    index.push(IndexItem {
+                        item,
+                        hash,
+                        position: pos as u32,
+                    });
+                }
+            }
+            ReadIndexOption::NotEqual(not_equal) => {
+                //compare if is not equal
+                if item != not_equal {
+                    index.push(IndexItem {
+                        item,
+                        hash,
+                        position: pos as u32,
+                    });
+                }
+            }
+            ReadIndexOption::GranterThan(granter_than) => {
+                //compare if is granter than
+                if item > granter_than {
+                    index.push(IndexItem {
+                        item,
+                        hash,
+                        position: pos as u32,
+                    });
+                }
+            }
+            ReadIndexOption::LessThan(less_than) => {
+                //compare if is less than
+                if item < less_than {
+                    index.push(IndexItem {
+                        item,
+                        hash,
+                        position: pos as u32,
+                    });
+                }
+            }
+            ReadIndexOption::GranterThanOrEqual(granter_than_or_equal) => {
+                //compare if is granter than or equal
+                if item >= granter_than_or_equal {
+                    index.push(IndexItem {
+                        item,
+                        hash,
+                        position: pos as u32,
+                    });
+                }
+            }
+            ReadIndexOption::LessThanOrEqual(less_than_or_equal) => {
+                //compare if is less than or equal
+                if item <= less_than_or_equal {
+                    index.push(IndexItem {
+                        item,
+                        hash,
+                        position: pos as u32,
+                    });
+                }
+            }
+            ReadIndexOption::None => {
+                index.push(IndexItem {
+                    item,
+                    hash,
+                    position: pos as u32,
+                });
+            }
+        }
+    }
+
+    Ok(index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
