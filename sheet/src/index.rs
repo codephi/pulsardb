@@ -323,9 +323,13 @@ pub fn read_index_options(
             break;
         }
 
-        let pos = if order.eq(&ReadIndexOrder::Desc) {
-            let pos = total_size - pos - 1;
-            let byte_position = (pos as u64 * size_index_item as u64) + DEFAULT_SIZE_U32 as u64;
+        let position = if order.eq(&ReadIndexOrder::Desc) {
+            if last_position == pos {
+                break;
+            }
+
+            let position = last_position - pos - 1;
+            let byte_position = (position as u64 * size_index_item as u64) + DEFAULT_SIZE_U32 as u64;
 
             if byte_position < default_size_u32_as_u64 {
                 break;
@@ -336,8 +340,22 @@ pub fn read_index_options(
                 Error::Io
             );
 
-            pos
-        } else { pos };
+            position as u32
+        } else {
+            let position = last_position + pos;
+            let byte_position = (position as u64 * size_index_item as u64) + DEFAULT_SIZE_U32 as u64;
+
+            if position >= total_size {
+                break;
+            }
+
+            th_msg!(
+                buffer_reader.seek(std::io::SeekFrom::Start(byte_position)),
+                Error::Io
+            );
+
+            position as u32
+        };
 
         let mut item = vec![0; size_item];
         th_msg!(buffer_reader.read_exact(&mut item), Error::Io);
@@ -351,7 +369,7 @@ pub fn read_index_options(
                     index.push(IndexItem {
                         item,
                         hash,
-                        position: pos as u32,
+                        position,
                     });
                 }
             }
@@ -360,7 +378,7 @@ pub fn read_index_options(
                     index.push(IndexItem {
                         item,
                         hash,
-                        position: pos as u32,
+                        position,
                     });
                 } else {
                     let item_trim = item
@@ -373,7 +391,7 @@ pub fn read_index_options(
                         index.push(IndexItem {
                             item,
                             hash,
-                            position: pos as u32,
+                            position,
                         });
                     }
                 }
@@ -383,7 +401,7 @@ pub fn read_index_options(
                     index.push(IndexItem {
                         item,
                         hash,
-                        position: pos as u32,
+                        position,
                     });
                 } else {
                     let item_trim = item
@@ -396,7 +414,7 @@ pub fn read_index_options(
                         index.push(IndexItem {
                             item,
                             hash,
-                            position: pos as u32,
+                            position,
                         });
                     }
                 }
@@ -407,7 +425,7 @@ pub fn read_index_options(
                         index.push(IndexItem {
                             item,
                             hash,
-                            position: pos as u32,
+                            position,
                         });
                         break;
                     }
@@ -426,7 +444,7 @@ pub fn read_index_options(
                     index.push(IndexItem {
                         item,
                         hash,
-                        position: pos as u32,
+                        position,
                     });
                 }
             }
@@ -439,7 +457,7 @@ pub fn read_index_options(
                         index.push(IndexItem {
                             item,
                             hash,
-                            position: pos as u32,
+                            position,
                         });
                     }
 
@@ -450,7 +468,7 @@ pub fn read_index_options(
                     index.push(IndexItem {
                         item,
                         hash,
-                        position: pos as u32,
+                        position,
                     });
                 }
             }
@@ -463,7 +481,7 @@ pub fn read_index_options(
                         index.push(IndexItem {
                             item,
                             hash,
-                            position: pos as u32,
+                            position,
                         });
                     }
 
@@ -474,7 +492,7 @@ pub fn read_index_options(
                     index.push(IndexItem {
                         item,
                         hash,
-                        position: pos as u32,
+                        position,
                     });
                 }
             }
@@ -487,7 +505,7 @@ pub fn read_index_options(
                         index.push(IndexItem {
                             item,
                             hash,
-                            position: pos as u32,
+                            position,
                         });
                     }
 
@@ -498,7 +516,7 @@ pub fn read_index_options(
                     index.push(IndexItem {
                         item,
                         hash,
-                        position: pos as u32,
+                        position,
                     });
                 }
             }
@@ -511,7 +529,7 @@ pub fn read_index_options(
                         index.push(IndexItem {
                             item,
                             hash,
-                            position: pos as u32,
+                            position,
                         });
                     }
 
@@ -522,7 +540,7 @@ pub fn read_index_options(
                     index.push(IndexItem {
                         item,
                         hash,
-                        position: pos as u32,
+                        position,
                     });
                 }
             }
@@ -535,7 +553,7 @@ pub fn read_index_options(
                         index.push(IndexItem {
                             item,
                             hash,
-                            position: pos as u32,
+                            position,
                         });
                     }
 
@@ -546,7 +564,7 @@ pub fn read_index_options(
                     index.push(IndexItem {
                         item,
                         hash,
-                        position: pos as u32,
+                        position,
                     });
                 }
             }
@@ -559,7 +577,7 @@ pub fn read_index_options(
                         index.push(IndexItem {
                             item,
                             hash,
-                            position: pos as u32,
+                            position,
                         });
                     }
 
@@ -570,7 +588,7 @@ pub fn read_index_options(
                     index.push(IndexItem {
                         item,
                         hash,
-                        position: pos as u32,
+                        position,
                     });
                 }
             }
@@ -578,7 +596,7 @@ pub fn read_index_options(
                 index.push(IndexItem {
                     item,
                     hash,
-                    position: pos as u32,
+                    position,
                 });
             }
         }
@@ -1220,6 +1238,75 @@ mod tests {
                 position: 1
             },
         ], asc);
+
+        remove_file(file_name).unwrap();
+    }
+
+    #[test]
+    fn test_read_index_last_position_and_order() {
+        let file_name = "test_read_index_last_position_and_order";
+        let file = File::create(file_name).unwrap();
+        let mut buffer_writer = BufWriter::new(&file);
+        let size_index_item = UUID_SIZE + 5;
+
+        let item1 = create_index_item_uuid!(b"aaaaa", size_index_item);
+        let item2 = create_index_item_uuid!(b"bbbbb", size_index_item);
+        let item3 = create_index_item_uuid!(b"ccccc", size_index_item);
+        let item4 = create_index_item_uuid!(b"ddddd", size_index_item);
+
+        let index = vec![
+            item1.0.clone(),
+            item2.0.clone(),
+            item3.0.clone(),
+            item4.0.clone(),
+        ];
+
+        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+
+        buffer_writer.flush().unwrap();
+
+        let file = File::open(file_name).unwrap();
+        let mut buffer_reader = BufReader::new(&file);
+
+        let asc = read_index_options(
+            &mut buffer_reader,
+            size_index_item as u8,
+            ReadIndexOptions {
+                filter: ReadIndexFilter::None,
+                limit: None,
+                last_position: Some(2),
+                order: Some(ReadIndexOrder::Asc),
+            },
+        )
+        .unwrap();
+        assert_eq!(asc.len(), 2);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let desc = read_index_options(
+            &mut buffer_reader,
+            size_index_item as u8,
+            ReadIndexOptions {
+                filter: ReadIndexFilter::None,
+                limit: None,
+                last_position: Some(2),
+                order: Some(ReadIndexOrder::Desc),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(vec![
+            IndexItem {
+                item: b"bbbbb".to_vec(),
+                hash: item2.1,
+                position: 1
+            },
+            IndexItem {
+                item: b"aaaaa".to_vec(),
+                hash: item1.1,
+                position: 0
+            }
+        ], desc);
 
         remove_file(file_name).unwrap();
     }
