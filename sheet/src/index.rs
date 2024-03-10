@@ -220,7 +220,6 @@ pub fn read_index_options(
                         position: pos as u32,
                     });
                 } else {
-                    // remove  empty; from item_str
                     let item_trim = item.iter().filter(|&i| *i != 0).cloned().collect::<Vec<u8>>();
 
                     if item_trim.ends_with(&end) {
@@ -239,6 +238,16 @@ pub fn read_index_options(
                         hash,
                         position: pos as u32,
                     });
+                } else {
+                    let item_trim = item.iter().filter(|&i| *i != 0).cloned().collect::<Vec<u8>>();
+
+                    if item_trim.starts_with(&start) && item_trim.ends_with(&end) {
+                        index.push(IndexItem {
+                            item,
+                            hash,
+                            position: pos as u32,
+                        });
+                    }
                 }
             }
             ReadIndexOption::Contains(contains) => {
@@ -270,7 +279,22 @@ pub fn read_index_options(
                     });
                 }
             }
-            ReadIndexOption::Equal(equal) => {
+            ReadIndexOption::Equal( equal) => {
+                if item.len() > equal.len() {
+                    let mut equal = equal.clone();
+                    equal.resize(item.len(), 0);
+
+                    if item.eq(&equal) {
+                        index.push(IndexItem {
+                            item,
+                            hash,
+                            position: pos as u32,
+                        });
+                    }
+
+                    continue;
+                }
+
                 if item.eq(equal) {
                     index.push(IndexItem {
                         item,
@@ -280,7 +304,21 @@ pub fn read_index_options(
                 }
             }
             ReadIndexOption::NotEqual(not_equal) => {
-                //compare if is not equal
+                if item.len() > not_equal.len() {
+                    let mut not_equal = not_equal.clone();
+                    not_equal.resize(item.len(), 0);
+
+                    if item.ne(&not_equal) {
+                        index.push(IndexItem {
+                            item,
+                            hash,
+                            position: pos as u32,
+                        });
+                    }
+
+                    continue;
+                }
+
                 if item.ne(not_equal) {
                     index.push(IndexItem {
                         item,
@@ -290,6 +328,21 @@ pub fn read_index_options(
                 }
             }
             ReadIndexOption::GranterThan(granter_than) => {
+                if item.len() > granter_than.len() {
+                    let mut granter_than = granter_than.clone();
+                    granter_than.resize(item.len(), 0);
+
+                    if item.gt(&granter_than) {
+                        index.push(IndexItem {
+                            item,
+                            hash,
+                            position: pos as u32,
+                        });
+                    }
+
+                    continue;
+                }
+
                 if item.gt(granter_than) {
                     index.push(IndexItem {
                         item,
@@ -299,6 +352,21 @@ pub fn read_index_options(
                 }
             }
             ReadIndexOption::LessThan(less_than) => {
+                if item.len() > less_than.len() {
+                    let mut less_than = less_than.clone();
+                    less_than.resize(item.len(), 0);
+
+                    if item.lt(&less_than) {
+                        index.push(IndexItem {
+                            item,
+                            hash,
+                            position: pos as u32,
+                        });
+                    }
+
+                    continue;
+                }
+
                 if item.lt(less_than) {
                     index.push(IndexItem {
                         item,
@@ -308,6 +376,21 @@ pub fn read_index_options(
                 }
             }
             ReadIndexOption::GranterThanOrEqual(granter_than_or_equal) => {
+                if item.len() > granter_than_or_equal.len() {
+                    let mut granter_than_or_equal = granter_than_or_equal.clone();
+                    granter_than_or_equal.resize(item.len(), 0);
+
+                    if item.ge(&granter_than_or_equal) {
+                        index.push(IndexItem {
+                            item,
+                            hash,
+                            position: pos as u32,
+                        });
+                    }
+
+                    continue;
+                }
+
                 if item.ge(granter_than_or_equal) {
                     index.push(IndexItem {
                         item,
@@ -317,6 +400,21 @@ pub fn read_index_options(
                 }
             }
             ReadIndexOption::LessThanOrEqual(less_than_or_equal) => {
+                if item.len() > less_than_or_equal.len() {
+                    let mut less_than_or_equal = less_than_or_equal.clone();
+                    less_than_or_equal.resize(item.len(), 0);
+
+                    if item.le(&less_than_or_equal) {
+                        index.push(IndexItem {
+                            item,
+                            hash,
+                            position: pos as u32,
+                        });
+                    }
+
+                    continue;
+                }
+
                 if item.le(less_than_or_equal) {
                     index.push(IndexItem {
                         item,
@@ -544,7 +642,7 @@ mod tests {
         let size_index_item = UUID_SIZE + 15;
 
         let index = vec![
-            create_index_item!(b"hello w0rld", size_index_item),
+            create_index_item!(b"hello world", size_index_item),
             create_index_item!(b"hello dad", size_index_item),
             create_index_item!(b"friend hello", size_index_item),
             create_index_item!(b"code me", size_index_item),
@@ -577,6 +675,174 @@ mod tests {
 
         buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
 
+        let start_and_end_with = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::StartAndEndWith(&b"h".to_vec(), &b"dad".to_vec())).unwrap();
+        assert_eq!(start_and_end_with.len(), 1);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        remove_file(file_name).unwrap();
+    }
+
+    #[test]
+    fn test_read_index_options_date() {
+        let file_name = "test_read_index_options_date";
+        let file = File::create(file_name).unwrap();
+        let mut buffer_writer = BufWriter::new(&file);
+        let size_index_item = UUID_SIZE + 20;
+
+        let index = vec![
+            create_index_item!(b"2022-01-05 18:25:47", size_index_item),
+            create_index_item!(b"2022-05-05 18:25:48", size_index_item),
+            create_index_item!(b"2022-05-05 18:25:48", size_index_item),
+            create_index_item!(b"2022-05-05 18:25:49", size_index_item),
+            create_index_item!(b"2022-07-05 18:25:49", size_index_item),
+            create_index_item!(b"2022-09-05 18:25:50", size_index_item),
+        ];
+
+        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+
+        buffer_writer.flush().unwrap();
+
+        let file = File::open(file_name).unwrap();
+        let mut buffer_reader = BufReader::new(&file);
+
+        let equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::Equal(&b"2022-05-05 18:25:48".to_vec())).unwrap();
+        assert_eq!(equal.len(), 2);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let not_equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::NotEqual(&b"2022-05-05 18:25:48".to_vec())).unwrap();
+        assert_eq!(not_equal.len(), 4);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let granter_than = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::GranterThan(&b"2022-05-05 18:25:48".to_vec())).unwrap();
+        assert_eq!(granter_than.len(), 3);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let less_than = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::LessThan(&b"2022-05-05 18:25:48".to_vec())).unwrap();
+        assert_eq!(less_than.len(), 1);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let granter_than_or_equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::GranterThanOrEqual(&b"2022-05-05 18:25:48".to_vec())).unwrap();
+        assert_eq!(granter_than_or_equal.len(), 5);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let less_than_or_equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::LessThanOrEqual(&b"2022-05-05 18:25:48".to_vec())).unwrap();
+        assert_eq!(less_than_or_equal.len(), 3);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        remove_file(file_name).unwrap();
+    }
+
+    #[test]
+    fn test_read_index_options_math_alphabet() {
+        let file_name = "test_read_index_options_math_alphabet";
+        let file = File::create(file_name).unwrap();
+        let mut buffer_writer = BufWriter::new(&file);
+        let size_index_item = UUID_SIZE + 10;
+
+        let index = vec![
+            create_index_item!(b"alice", size_index_item),
+            create_index_item!(b"bob", size_index_item),
+            create_index_item!(b"carlos", size_index_item),
+            create_index_item!(b"carol", size_index_item),
+            create_index_item!(b"david", size_index_item),
+            create_index_item!(b"edward", size_index_item),
+        ];
+
+        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+
+        buffer_writer.flush().unwrap();
+
+        let file = File::open(file_name).unwrap();
+        let mut buffer_reader = BufReader::new(&file);
+
+        let equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::Equal(&b"carol".to_vec())).unwrap();
+        assert_eq!(equal.len(), 1);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let not_equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::NotEqual(&b"carol".to_vec())).unwrap();
+        assert_eq!(not_equal.len(), 5);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let granter_than = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::GranterThan(&b"carol".to_vec())).unwrap();
+        assert_eq!(granter_than.len(), 2);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let less_than = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::LessThan(&b"carol".to_vec())).unwrap();
+        assert_eq!(less_than.len(), 3);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let granter_than_or_equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::GranterThanOrEqual(&b"carol".to_vec())).unwrap();
+        assert_eq!(granter_than_or_equal.len(), 3);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let less_than_or_equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::LessThanOrEqual(&b"carol".to_vec())).unwrap();
+        assert_eq!(less_than_or_equal.len(), 4);
+
+        remove_file(file_name).unwrap();
+    }
+
+    #[test]
+    fn test_read_index_options_math_number() {
+        let file_name = "test_read_index_options_math_alphabet";
+        let file = File::create(file_name).unwrap();
+        let mut buffer_writer = BufWriter::new(&file);
+        let size_index_item = UUID_SIZE + 10;
+
+        let index = vec![
+            create_index_item!(b"100", size_index_item),
+            create_index_item!(b"200", size_index_item),
+            create_index_item!(b"200.1", size_index_item),
+            create_index_item!(b"300.2", size_index_item),
+            create_index_item!(b"300.1", size_index_item),
+            create_index_item!(b"300", size_index_item),
+        ];
+
+        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+
+        buffer_writer.flush().unwrap();
+
+        let file = File::open(file_name).unwrap();
+        let mut buffer_reader = BufReader::new(&file);
+
+        let equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::Equal(&b"200".to_vec())).unwrap();
+        assert_eq!(equal.len(), 1);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let not_equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::NotEqual(&b"200".to_vec())).unwrap();
+        assert_eq!(not_equal.len(), 5);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let granter_than = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::GranterThan(&b"200".to_vec())).unwrap();
+        assert_eq!(granter_than.len(), 4);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let less_than = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::LessThan(&b"200".to_vec())).unwrap();
+        assert_eq!(less_than.len(), 1);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let granter_than_or_equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::GranterThanOrEqual(&b"200".to_vec())).unwrap();
+        assert_eq!(granter_than_or_equal.len(), 5);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let less_than_or_equal = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::LessThanOrEqual(&b"200".to_vec())).unwrap();
+        assert_eq!(less_than_or_equal.len(), 2);
 
         remove_file(file_name).unwrap();
     }
