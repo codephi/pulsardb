@@ -70,6 +70,7 @@ mod index;
 
 pub use header::*;
 pub use properties::*;
+use crate::index::ReadIndexOrder;
 
 /// Data type for the sheet
 pub const DATA_TYPE_UNDEFINED: u8 = 0;
@@ -114,6 +115,10 @@ pub const DEFAULT_SIZE_F64: usize = 8;
 pub const DEFAULT_SIZE_UNDEFINED: usize = 0;
 
 pub const UUID_SIZE: usize = 32;
+
+pub const DEFAULT_LIMIT_INDEX_READ: usize = 100;
+
+pub const DEFAULT_ORDER_INDEX_READ: ReadIndexOrder = ReadIndexOrder::Desc;
 
 #[derive(Debug)]
 pub enum Error {

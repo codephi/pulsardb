@@ -82,3 +82,13 @@ macro_rules! create_index_item {
         }
     };
 }
+
+#[macro_export]
+macro_rules! create_index_item_uuid {
+    ($prop:expr, $total_size:expr) => {
+        {
+            let uuid = crate::uuid!();
+            (crate::index_item!(uuid, $prop, $total_size), uuid)
+        }
+    };
+}
