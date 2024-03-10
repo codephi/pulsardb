@@ -16,8 +16,8 @@ pub fn write_index_raw(
     );
 
     for item in index {
-        let mut buffer = vec![0u8; size_index_item as usize];
-        buffer[..item.len()].copy_from_slice(&item);
+        let mut buffer = vec![0; size_index_item as usize];
+        buffer[0..item.len()].copy_from_slice(&item);
 
         th_msg!(buffer_writer.write_all(&buffer), Error::Io);
     }
@@ -37,7 +37,7 @@ pub fn read_index_raw(
     let mut index = Vec::with_capacity(total_size);
 
     for _ in 0..total_size {
-        let mut buffer = vec![0u8; size_index_item as usize];
+        let mut buffer = vec![0; size_index_item as usize];
         th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
         index.push(buffer);
     }
@@ -68,7 +68,7 @@ pub fn add_item_index(
     ) as usize;
 
     let mut index = {
-        let mut buffer: Vec<u8> = vec![0u8; size_index_item as usize];
+        let mut buffer: Vec<u8> = vec![0; size_index_item as usize];
         buffer[..item.len()].copy_from_slice(&item);
 
         let mut vec = Vec::with_capacity((total_size + 1) * size_index_item as usize);
@@ -82,7 +82,7 @@ pub fn add_item_index(
     // TODO: no futuro, testar a performance com o rayon
     // talvez seja interessante paralelizar a busca caso tenha muitos itens
     for pos in 0..total_size {
-        let mut buffer = vec![0u8; size_index_item as usize];
+        let mut buffer = vec![0; size_index_item as usize];
         th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
         if item < buffer {
@@ -128,17 +128,14 @@ pub fn remove_item_index(
 
     let mut index = Vec::with_capacity(total_size * size_index_item as usize);
 
-    let mut position = total_size - 1;
-
-    let mut target: Vec<u8> = vec![0u8; size_index_item as usize];
+    let mut target: Vec<u8> = vec![0; size_index_item as usize];
     target[..item.len()].copy_from_slice(&item);
 
-    for pos in 0..total_size {
-        let mut buffer = vec![0u8; size_index_item as usize];
+    for _ in 0..total_size {
+        let mut buffer = vec![0; size_index_item as usize];
         th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
         if target == buffer {
-            position = pos;
             continue;
         }
 
@@ -163,18 +160,18 @@ pub fn remove_item_index(
 }
 
 #[derive(Debug)]
-pub enum ReadIndexOption {
-    StartWith(&'static Vec<u8>),
-    EndWith(&'static Vec<u8>),
-    StartAndEndWith(&'static Vec<u8>, &'static Vec<u8>),
-    Contains(&'static Vec<u8>),
-    NotContains(&'static Vec<u8>),
-    Equal(&'static Vec<u8>),
-    NotEqual(&'static Vec<u8>),
-    GranterThan(&'static Vec<u8>),
-    LessThan(&'static Vec<u8>),
-    GranterThanOrEqual(&'static Vec<u8>),
-    LessThanOrEqual(&'static Vec<u8>),
+pub enum ReadIndexOption<'a> {
+    StartWith(&'a Vec<u8>),
+    EndWith(&'a Vec<u8>),
+    StartAndEndWith(&'a Vec<u8>, &'a Vec<u8>),
+    Contains(&'a Vec<u8>),
+    NotContains(&'a Vec<u8>),
+    Equal(&'a Vec<u8>),
+    NotEqual(&'a Vec<u8>),
+    GranterThan(&'a Vec<u8>),
+    LessThan(&'a Vec<u8>),
+    GranterThanOrEqual(&'a Vec<u8>),
+    LessThanOrEqual(&'a Vec<u8>),
     None,
 }
 
@@ -190,7 +187,6 @@ pub fn read_index_options(
     size_index_item: u8,
     option: ReadIndexOption,
 ) -> Result<Vec<IndexItem>, Error> {
-    let size_index_item_u32 = size_index_item as u32;
     let size_item: usize = size_index_item as usize - UUID_SIZE;
     let total_size = th_msg!(
         buffer_reader.read_u32::<byteorder::LittleEndian>(),
@@ -200,10 +196,10 @@ pub fn read_index_options(
     let mut index: Vec<IndexItem> = Vec::with_capacity(total_size);
 
     for pos in 0..total_size {
-        let mut item = vec![0u8; size_item];
+        let mut item = vec![0; size_item];
         th_msg!(buffer_reader.read_exact(&mut item), Error::Io);
 
-        let mut hash = vec![0u8; UUID_SIZE];
+        let mut hash = vec![0; UUID_SIZE];
         th_msg!(buffer_reader.read_exact(&mut hash), Error::Io);
 
         match option {
@@ -223,6 +219,17 @@ pub fn read_index_options(
                         hash,
                         position: pos as u32,
                     });
+                } else {
+                    // remove  empty; from item_str
+                    let item_trim = item.iter().filter(|&i| *i != 0).cloned().collect::<Vec<u8>>();
+
+                    if item_trim.ends_with(&end) {
+                        index.push(IndexItem {
+                            item,
+                            hash,
+                            position: pos as u32,
+                        });
+                    }
                 }
             }
             ReadIndexOption::StartAndEndWith(start, end) => {
@@ -235,16 +242,27 @@ pub fn read_index_options(
                 }
             }
             ReadIndexOption::Contains(contains) => {
-                if item.contains(contains) {
-                    index.push(IndexItem {
-                        item,
-                        hash,
-                        position: pos as u32,
-                    });
+                for i in 0..item.len() {
+                    if item[i..].starts_with(contains) {
+                        index.push(IndexItem {
+                            item,
+                            hash,
+                            position: pos as u32,
+                        });
+                        break;
+                    }
                 }
             }
             ReadIndexOption::NotContains(not_contains) => {
-                if !item.contains(not_contains) {
+                let mut found = false;
+                for i in 0..item.len() {
+                    if item[i..].starts_with(not_contains) {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if !found {
                     index.push(IndexItem {
                         item,
                         hash,
@@ -253,7 +271,7 @@ pub fn read_index_options(
                 }
             }
             ReadIndexOption::Equal(equal) => {
-                if item == equal {
+                if item.eq(equal) {
                     index.push(IndexItem {
                         item,
                         hash,
@@ -263,7 +281,7 @@ pub fn read_index_options(
             }
             ReadIndexOption::NotEqual(not_equal) => {
                 //compare if is not equal
-                if item != not_equal {
+                if item.ne(not_equal) {
                     index.push(IndexItem {
                         item,
                         hash,
@@ -272,8 +290,7 @@ pub fn read_index_options(
                 }
             }
             ReadIndexOption::GranterThan(granter_than) => {
-                //compare if is granter than
-                if item > granter_than {
+                if item.gt(granter_than) {
                     index.push(IndexItem {
                         item,
                         hash,
@@ -282,8 +299,7 @@ pub fn read_index_options(
                 }
             }
             ReadIndexOption::LessThan(less_than) => {
-                //compare if is less than
-                if item < less_than {
+                if item.lt(less_than) {
                     index.push(IndexItem {
                         item,
                         hash,
@@ -292,8 +308,7 @@ pub fn read_index_options(
                 }
             }
             ReadIndexOption::GranterThanOrEqual(granter_than_or_equal) => {
-                //compare if is granter than or equal
-                if item >= granter_than_or_equal {
+                if item.ge(granter_than_or_equal) {
                     index.push(IndexItem {
                         item,
                         hash,
@@ -302,8 +317,7 @@ pub fn read_index_options(
                 }
             }
             ReadIndexOption::LessThanOrEqual(less_than_or_equal) => {
-                //compare if is less than or equal
-                if item <= less_than_or_equal {
+                if item.le(less_than_or_equal) {
                     index.push(IndexItem {
                         item,
                         hash,
@@ -431,7 +445,7 @@ mod tests {
             item.clone(),
             size_index_item as u8,
         )
-        .unwrap();
+            .unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -493,7 +507,7 @@ mod tests {
             index.get(1).unwrap().clone(),
             size_index_item as u8,
         )
-        .unwrap();
+            .unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -518,6 +532,51 @@ mod tests {
         };
 
         assert_eq!(compare, index_read);
+
+        remove_file(file_name).unwrap();
+    }
+
+    #[test]
+    fn test_read_index_options() {
+        let file_name = "test_read_index_options";
+        let file = File::create(file_name).unwrap();
+        let mut buffer_writer = BufWriter::new(&file);
+        let size_index_item = UUID_SIZE + 15;
+
+        let index = vec![
+            create_index_item!(b"hello w0rld", size_index_item),
+            create_index_item!(b"hello dad", size_index_item),
+            create_index_item!(b"friend hello", size_index_item),
+            create_index_item!(b"code me", size_index_item),
+        ];
+
+        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+
+        buffer_writer.flush().unwrap();
+
+        let file = File::open(file_name).unwrap();
+        let mut buffer_reader = BufReader::new(&file);
+
+        let contains = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::Contains(&b"hello".to_vec())).unwrap();
+        assert_eq!(contains.len(), 3);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let not_contains = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::NotContains(&b"xxx".to_vec())).unwrap();
+        assert_eq!(not_contains.len(), 4);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let start_with = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::StartWith(&b"hello".to_vec())).unwrap();
+        assert_eq!(start_with.len(), 2);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let end_with = read_index_options(&mut buffer_reader, size_index_item as u8, ReadIndexOption::EndWith(&b"e".to_vec())).unwrap();
+        assert_eq!(end_with.len(), 1);
+
+        buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
 
         remove_file(file_name).unwrap();
     }

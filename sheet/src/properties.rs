@@ -402,7 +402,7 @@ pub fn write_properties(
                         return Err(Error::VarcharSize);
                     }
 
-                    let mut buffer = vec![0u8; size as usize];
+                    let mut buffer = vec![0; size as usize];
                     buffer[..data.len()].copy_from_slice(data.as_bytes());
 
                     th_msg!(buffer_writer.write_all(&buffer), Error::Io);
@@ -517,7 +517,7 @@ pub fn read_properties(
         let value = match prop.get_data_type() {
             DataType::Varchar(size) => {
                 let size = *size;
-                let mut buffer = vec![0u8; size as usize];
+                let mut buffer = vec![0; size as usize];
 
                 th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
@@ -529,7 +529,7 @@ pub fn read_properties(
                     Error::Io
                 ) as usize;
 
-                let mut buffer = vec![0u8; size];
+                let mut buffer = vec![0; size];
 
                 th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
@@ -586,7 +586,7 @@ pub fn read_properties_by_byte_position(
                 );
 
                 let size = *size;
-                let mut buffer = vec![0u8; size as usize];
+                let mut buffer = vec![0; size as usize];
 
                 th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
@@ -610,7 +610,7 @@ pub fn read_properties_by_byte_position(
                             ) as usize;
 
                             if position == &prop.get_position() {
-                                let mut buffer = vec![0u8; size];
+                                let mut buffer = vec![0; size];
 
                                 th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 

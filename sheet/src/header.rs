@@ -582,7 +582,7 @@ pub fn read_header(buffer_reader: &mut BufReader<File>) -> Result<Vec<PropertyHe
             Error::Io
         );
 
-        let mut label_bytes = vec![0u8; label_size as usize];
+        let mut label_bytes = vec![0; label_size as usize];
 
         th_msg!(buffer_reader.read_exact(&mut label_bytes), Error::Io);
 
