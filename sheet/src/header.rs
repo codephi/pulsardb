@@ -1,3 +1,16 @@
+/// Header
+/// The header binary file is composed by:
+///
+/// | total_schemas | schema_size      | original_position | data_type | label_size | label  ...
+/// |---------------|------------------|-------------------|-----------|------------|------- ...
+/// | u32           | u32              | u32               | u8        | u32        | Vec    ...
+///
+/// - total_schemas: total of schemas in the header.
+/// - schema_size: total of properties in the header.
+/// - original_position: original position of the property.
+/// - data_type: data type of the property.
+/// - label_size: size of the label.
+/// - label: label of the property.
 use crate::{
     th, th_msg, Error, DATA_TYPE_BOOLEAN, DATA_TYPE_F32, DATA_TYPE_F64, DATA_TYPE_I128,
     DATA_TYPE_I16, DATA_TYPE_I32, DATA_TYPE_I64, DATA_TYPE_I8, DATA_TYPE_NULL, DATA_TYPE_TEXT,
@@ -117,7 +130,7 @@ impl From<u8> for DataType {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct PropertyHeader {
+pub struct PropertySchema {
     data_type: DataType,
     label: Vec<u8>,
     original_position: usize,
@@ -125,14 +138,14 @@ pub struct PropertyHeader {
     byte_position: Option<usize>,
 }
 
-impl PropertyHeader {
+impl PropertySchema {
     pub fn new(
         label: Vec<u8>,
         original_position: usize,
         position: usize,
         data_type: DataType,
     ) -> Self {
-        PropertyHeader {
+        PropertySchema {
             data_type,
             label: label.into(),
             position,
@@ -170,7 +183,7 @@ impl PropertyHeader {
     }
 }
 
-impl PropertyHeader {
+impl PropertySchema {
     pub fn default_size(&self) -> usize {
         match self.data_type {
             DataType::Varchar(size) => size as usize,
@@ -205,8 +218,8 @@ impl PropertyHeader {
 /// ```
 #[derive(Debug)]
 pub struct BuilderHeader {
-    headers: Vec<PropertyHeader>,
-    headers_dynamic_size: Vec<PropertyHeader>,
+    headers: Vec<PropertySchema>,
+    headers_dynamic_size: Vec<PropertySchema>,
     is_dynamic_size: bool,
     next_byte_position: usize,
     dynamic_size_positions: Vec<usize>,
@@ -249,7 +262,7 @@ impl BuilderHeader {
             )
         };
 
-        let mut prop = PropertyHeader::new(label, original_position, position, data_type);
+        let mut prop = PropertySchema::new(label, original_position, position, data_type);
 
         if is_dynamic_size {
             if !self.is_dynamic_size {
@@ -300,7 +313,7 @@ impl BuilderHeader {
     }
 
     /// Exclusive use of crate! Add a new property to the header.
-    pub(crate) fn add_property_raw(&mut self, mut prop: PropertyHeader) -> Result<(), Error> {
+    pub(crate) fn add_property_raw(&mut self, mut prop: PropertySchema) -> Result<(), Error> {
         if prop.data_type.is_dynamic_size() {
             if !self.is_dynamic_size {
                 self.is_dynamic_size = true;
@@ -319,7 +332,7 @@ impl BuilderHeader {
     }
 
     /// Exclusive use of crate! Build the header.
-    pub(crate) fn build_raw(&mut self) -> (Vec<PropertyHeader>, bool, Option<usize>, Vec<usize>) {
+    pub(crate) fn build_raw(&mut self) -> (Vec<PropertySchema>, bool, Option<usize>, Vec<usize>) {
         let headers_dynamic_size = &mut self
             .headers_dynamic_size
             .iter()
@@ -360,7 +373,7 @@ impl BuilderHeader {
 /// ```
 #[derive(Debug)]
 pub struct Header {
-    headers: Vec<PropertyHeader>,
+    headers: Vec<PropertySchema>,
     is_dynamic_size: bool,
     last_byte_position_no_dynamic: Option<usize>,
     dynamic_size_positions: Vec<usize>,
@@ -397,22 +410,22 @@ impl Header {
     }
 
     /// Get the size of the header
-    pub fn get_headers(&self) -> &Vec<PropertyHeader> {
+    pub fn get_headers(&self) -> &Vec<PropertySchema> {
         &self.headers
     }
 
     /// Get the size of the header
-    pub fn headers_iter(&self) -> std::slice::Iter<'_, PropertyHeader> {
+    pub fn headers_iter(&self) -> std::slice::Iter<'_, PropertySchema> {
         self.headers.iter()
     }
 
     /// Get the size of the header
-    pub fn get(&self, index: usize) -> Option<&PropertyHeader> {
+    pub fn get(&self, index: usize) -> Option<&PropertySchema> {
         self.headers.get(index)
     }
 
     /// Get the size of the header
-    pub fn get_by_original_position(&self, original_position: usize) -> Option<&PropertyHeader> {
+    pub fn get_by_original_position(&self, original_position: usize) -> Option<&PropertySchema> {
         self.headers
             .iter()
             .find(|prop| prop.get_original_position() == original_position)
@@ -424,7 +437,7 @@ impl Header {
     }
 
     /// Get the size of the header
-    pub fn get_by_label(&self, label: &[u8]) -> Result<&PropertyHeader, Error> {
+    pub fn get_by_label(&self, label: &[u8]) -> Result<&PropertySchema, Error> {
         match self.headers.iter().find(|prop| prop.label == label) {
             Some(prop) => Ok(prop),
             None => Err(Error::LabelNotFound),
@@ -512,7 +525,7 @@ impl<'a> TryFrom<Vec<(&str, DataType)>> for Header {
 // TODO: determitar tamanho fixo para a label
 pub fn write_header(
     buffer_writer: &mut BufWriter<File>,
-    headers: std::slice::Iter<'_, PropertyHeader>,
+    headers: std::slice::Iter<'_, PropertySchema>,
 ) -> Result<(), Error> {
     // Write total size
     th_msg!(
@@ -554,12 +567,12 @@ pub fn write_header(
 /// let buffer_reader = &mut BufReader::new(File::open("header.bin").unwrap());
 /// let properties = read_header(buffer_reader).unwrap();
 /// ```
-pub fn read_header(buffer_reader: &mut BufReader<File>) -> Result<Vec<PropertyHeader>, Error> {
-    let total_properties = th_msg!(
+pub fn read_header(buffer_reader: &mut BufReader<File>) -> Result<Vec<PropertySchema>, Error> {
+    let schema_size = th_msg!(
         buffer_reader.read_u32::<byteorder::LittleEndian>(),
         Error::Io
     );
-    let mut properties = Vec::with_capacity(total_properties as usize);
+    let mut properties = Vec::with_capacity(schema_size as usize);
 
     while let Ok(original_position_byte) = buffer_reader.read_u32::<byteorder::LittleEndian>() {
         let original_position = original_position_byte as usize;
@@ -586,7 +599,7 @@ pub fn read_header(buffer_reader: &mut BufReader<File>) -> Result<Vec<PropertyHe
 
         th_msg!(buffer_reader.read_exact(&mut label_bytes), Error::Io);
 
-        properties.push(PropertyHeader::new(
+        properties.push(PropertySchema::new(
             label_bytes,
             original_position,
             properties.len(),
@@ -641,10 +654,10 @@ mod tests {
         let properties = read_header(buffer_reader).unwrap();
 
         let original_properties_new_order = vec![
-            PropertyHeader::new("varchar".as_bytes().to_vec(), 0, 0, DataType::Varchar(10)),
-            PropertyHeader::new("i32".as_bytes().to_vec(), 2, 1, DataType::I32),
-            PropertyHeader::new("f64".as_bytes().to_vec(), 3, 2, DataType::F64),
-            PropertyHeader::new("text".as_bytes().to_vec(), 1, 3, DataType::Text),
+            PropertySchema::new("varchar".as_bytes().to_vec(), 0, 0, DataType::Varchar(10)),
+            PropertySchema::new("i32".as_bytes().to_vec(), 2, 1, DataType::I32),
+            PropertySchema::new("f64".as_bytes().to_vec(), 3, 2, DataType::F64),
+            PropertySchema::new("text".as_bytes().to_vec(), 1, 3, DataType::Text),
         ];
 
         assert_eq!(properties, original_properties_new_order);

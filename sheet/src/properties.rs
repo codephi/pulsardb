@@ -2,7 +2,7 @@ use byteorder::ReadBytesExt;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 
-use crate::header::{DataType, Header, PropertyHeader};
+use crate::header::{DataType, Header, PropertySchema};
 use crate::{
     th, th_msg, th_none, Error, DEFAULT_SIZE_U32, FALSE_BIN_VALUE, NULL_BIN_VALUE, TRUE_BIN_VALUE,
 };
@@ -335,20 +335,20 @@ macro_rules! read_data_by_byte_position {
 /// ```
 /// let buffer_writer = &mut BufWriter::new(File::create("values.bin").unwrap());
 /// let header = vec![
-///    PropertyHeader::from(("varchar", DataType::Varchar(30))),
-///    PropertyHeader::from(("boolean", DataType::Boolean)),
-///    PropertyHeader::from(("text", DataType::Text)),
-///    PropertyHeader::from(("i8", DataType::I8)),
-///    PropertyHeader::from(("i16", DataType::I16)),
-///    PropertyHeader::from(("i32", DataType::I32)),
-///    PropertyHeader::from(("i64", DataType::I64)),
-///    PropertyHeader::from(("i128", DataType::I128)),
-///    PropertyHeader::from(("u8", DataType::U8)),
-///    PropertyHeader::from(("u16", DataType::U16)),
-///    PropertyHeader::from(("u32", DataType::U32)),
-///    PropertyHeader::from(("u64", DataType::U64)),
-///    PropertyHeader::from(("f32", DataType::F32)),
-///    PropertyHeader::from(("f64", DataType::F64)),
+///    PropertySchema::from(("varchar", DataType::Varchar(30))),
+///    PropertySchema::from(("boolean", DataType::Boolean)),
+///    PropertySchema::from(("text", DataType::Text)),
+///    PropertySchema::from(("i8", DataType::I8)),
+///    PropertySchema::from(("i16", DataType::I16)),
+///    PropertySchema::from(("i32", DataType::I32)),
+///    PropertySchema::from(("i64", DataType::I64)),
+///    PropertySchema::from(("i128", DataType::I128)),
+///    PropertySchema::from(("u8", DataType::U8)),
+///    PropertySchema::from(("u16", DataType::U16)),
+///    PropertySchema::from(("u32", DataType::U32)),
+///    PropertySchema::from(("u64", DataType::U64)),
+///    PropertySchema::from(("f32", DataType::F32)),
+///    PropertySchema::from(("f64", DataType::F64)),
 /// ];
 /// let values = vec![
 ///    Data::String(format!("{: <30}", "varchar")),
@@ -572,7 +572,7 @@ pub fn read_properties(
 pub fn read_properties_by_byte_position(
     buffer_reader: &mut BufReader<File>,
     header: &Header,
-    property_headers: &Vec<&PropertyHeader>,
+    property_headers: &Vec<&PropertySchema>,
 ) -> Result<Vec<Data>, Error> {
     let mut values = Vec::new();
 
