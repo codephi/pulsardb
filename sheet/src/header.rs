@@ -1,4 +1,4 @@
-/// Header
+/// Schema
 /// The header binary file is composed by:
 ///
 /// | total_schemas | schema_size      | original_position | data_type | label_size | label  ...
@@ -207,18 +207,18 @@ impl PropertySchema {
     }
 }
 
-/// BuilderHeader struct
+/// BuilderSchema struct
 /// # Example
 /// ```
-/// let builder = BuilderHeader::new();
+/// let builder = BuilderSchema::new();
 /// builder.add("age", DataType::I32);
 /// builder.add("name", DataType::Varchar(10));
 /// builder.add("height", DataType::F64);
-/// let header = builder.build();
+/// let schema = builder.build();
 /// ```
 #[derive(Debug)]
-pub struct BuilderHeader {
-    headers: Vec<PropertySchema>,
+pub struct BuilderSchema {
+    properties: Vec<PropertySchema>,
     headers_dynamic_size: Vec<PropertySchema>,
     is_dynamic_size: bool,
     next_byte_position: usize,
@@ -226,11 +226,11 @@ pub struct BuilderHeader {
     sort_key_position: usize,
 }
 
-impl BuilderHeader {
-    /// Create a new BuilderHeader
+impl BuilderSchema {
+    /// Create a new BuilderSchema
     pub fn new() -> Self {
         Self {
-            headers: Vec::new(),
+            properties: Vec::new(),
             headers_dynamic_size: Vec::new(),
             is_dynamic_size: false,
             next_byte_position: 0,
@@ -245,7 +245,7 @@ impl BuilderHeader {
 
     /// Add a new property to the header
     pub fn add(&mut self, label: Vec<u8>, data_type: DataType) -> Result<(), Error> {
-        if self.headers.iter().any(|prop| prop.label == label) {
+        if self.properties.iter().any(|prop| prop.label == label) {
             return Err(Error::LabelExists(String::from_utf8(label).unwrap()));
         }
 
@@ -253,12 +253,12 @@ impl BuilderHeader {
         let (position, original_position) = if is_dynamic_size {
             (
                 self.headers_dynamic_size.len(),
-                self.headers_dynamic_size.len() + self.headers.len(),
+                self.headers_dynamic_size.len() + self.properties.len(),
             )
         } else {
             (
-                self.headers.len(),
-                self.headers_dynamic_size.len() + self.headers.len(),
+                self.properties.len(),
+                self.headers_dynamic_size.len() + self.properties.len(),
             )
         };
 
@@ -275,20 +275,20 @@ impl BuilderHeader {
 
             self.next_byte_position += prop.default_size();
 
-            self.headers.push(prop);
+            self.properties.push(prop);
         }
 
         Ok(())
     }
 
     /// Build the header
-    pub fn build(&mut self) -> Header {
+    pub fn build(&mut self) -> Schema {
         let headers_dynamic_size = &mut self
             .headers_dynamic_size
             .iter()
             .map(|prop| {
                 let mut prop = prop.clone();
-                prop.update_position(self.headers.len() + prop.get_position());
+                prop.update_position(self.properties.len() + prop.get_position());
 
                 self.dynamic_size_positions.push(prop.get_position());
 
@@ -296,11 +296,11 @@ impl BuilderHeader {
             })
             .collect::<Vec<_>>();
 
-        let mut headers = self.headers.clone();
-        headers.append(headers_dynamic_size);
+        let mut properties = self.properties.clone();
+        properties.append(headers_dynamic_size);
 
-        Header {
-            headers,
+        Schema {
+            properties,
             is_dynamic_size: self.is_dynamic_size,
             last_byte_position_no_dynamic: if self.is_dynamic_size {
                 Some(self.next_byte_position)
@@ -325,7 +325,7 @@ impl BuilderHeader {
 
             self.next_byte_position += prop.default_size();
 
-            self.headers.push(prop);
+            self.properties.push(prop);
         }
 
         Ok(())
@@ -346,11 +346,11 @@ impl BuilderHeader {
             })
             .collect::<Vec<_>>();
 
-        let mut headers = self.headers.clone();
-        headers.append(headers_dynamic_size);
+        let mut properties = self.properties.clone();
+        properties.append(headers_dynamic_size);
 
         (
-            headers,
+            properties,
             self.is_dynamic_size,
             if self.is_dynamic_size {
                 Some(self.next_byte_position)
@@ -362,29 +362,34 @@ impl BuilderHeader {
     }
 }
 
-/// BuilderHeader struct
+/// BuilderSchema struct
 /// # Example
 /// ```
-/// let builder = Header::from(vec![
+/// let builder = Schema::from(vec![
 ///     ("age", DataType::I32),
 ///     ("name", DataType::Varchar(10)),
 ///     ("height", DataType::F64),
 ///   ]);
 /// ```
 #[derive(Debug)]
-pub struct Header {
-    headers: Vec<PropertySchema>,
+pub struct Schema {
+    /// The properties of the header
+    properties: Vec<PropertySchema>,
+    /// If the schema has dynamic size
     is_dynamic_size: bool,
+    /// The last byte position of the header without dynamic size
     last_byte_position_no_dynamic: Option<usize>,
+    /// The positions of the dynamic size properties
     dynamic_size_positions: Vec<usize>,
+    /// The position of the sort key
     sort_key_position: usize,
 }
 
-impl Header {
-    /// Create a new Header
+impl Schema {
+    /// Create a new Schema
     pub fn new() -> Self {
         Self {
-            headers: Vec::new(),
+            properties: Vec::new(),
             is_dynamic_size: false,
             last_byte_position_no_dynamic: None,
             dynamic_size_positions: Vec::new(),
@@ -393,7 +398,7 @@ impl Header {
     }
 
     pub fn get_sort_key(&mut self) -> DataType {
-        self.headers[self.sort_key_position].data_type.clone()
+        self.properties[self.sort_key_position].data_type.clone()
     }
 
     pub fn get_sort_key_position(&self) -> usize {
@@ -401,32 +406,32 @@ impl Header {
     }
 
     pub fn get_sort_key_label(&self) -> &[u8] {
-        &self.headers[self.sort_key_position].label
+        &self.properties[self.sort_key_position].label
     }
 
-    /// Create a new Header
+    /// Create a new Schema
     pub fn len(&self) -> usize {
-        self.headers.len()
+        self.properties.len()
     }
 
     /// Get the size of the header
-    pub fn get_headers(&self) -> &Vec<PropertySchema> {
-        &self.headers
+    pub fn get_properties(&self) -> &Vec<PropertySchema> {
+        &self.properties
     }
 
     /// Get the size of the header
     pub fn headers_iter(&self) -> std::slice::Iter<'_, PropertySchema> {
-        self.headers.iter()
+        self.properties.iter()
     }
 
     /// Get the size of the header
     pub fn get(&self, index: usize) -> Option<&PropertySchema> {
-        self.headers.get(index)
+        self.properties.get(index)
     }
 
     /// Get the size of the header
     pub fn get_by_original_position(&self, original_position: usize) -> Option<&PropertySchema> {
-        self.headers
+        self.properties
             .iter()
             .find(|prop| prop.get_original_position() == original_position)
     }
@@ -438,7 +443,7 @@ impl Header {
 
     /// Get the size of the header
     pub fn get_by_label(&self, label: &[u8]) -> Result<&PropertySchema, Error> {
-        match self.headers.iter().find(|prop| prop.label == label) {
+        match self.properties.iter().find(|prop| prop.label == label) {
             Some(prop) => Ok(prop),
             None => Err(Error::LabelNotFound),
         }
@@ -469,37 +474,37 @@ impl Header {
 
         let headers = read_header(&mut buffer_reader)?;
 
-        let mut builder = BuilderHeader::new();
+        let mut builder = BuilderSchema::new();
 
         for prop in headers {
             builder.add_property_raw(prop)?;
         }
 
-        let header = builder.build_raw();
+        let schema = builder.build_raw();
 
-        self.headers = header.0;
-        self.is_dynamic_size = header.1;
-        self.last_byte_position_no_dynamic = header.2;
-        self.dynamic_size_positions = header.3;
+        self.properties = schema.0;
+        self.is_dynamic_size = schema.1;
+        self.last_byte_position_no_dynamic = schema.2;
+        self.dynamic_size_positions = schema.3;
 
         Ok(())
     }
 }
 
-/// Implement From for Header
+/// Implement From for Schema
 /// # Example
 /// ```
-/// let header = Header::from(vec![
+/// let schema = Schema::from(vec![
 ///     ("age", DataType::I32),
 ///     ("name", DataType::Varchar(10)),
 ///     ("height", DataType::F64),
 ///   ]);
 /// ```
-impl<'a> TryFrom<Vec<(&str, DataType)>> for Header {
+impl<'a> TryFrom<Vec<(&str, DataType)>> for Schema {
     type Error = Error;
 
     fn try_from(headers: Vec<(&str, DataType)>) -> Result<Self, Self::Error> {
-        let mut buidler = BuilderHeader::new();
+        let mut buidler = BuilderSchema::new();
 
         for (label, data_type) in headers {
             buidler.add(label.as_bytes().to_vec(), data_type)?;
@@ -513,14 +518,14 @@ impl<'a> TryFrom<Vec<(&str, DataType)>> for Header {
 /// # Example
 /// ```
 /// let buffer_writer = &mut BufWriter::new(File::create("header.bin").unwrap());
-/// let header = Header::from(vec![
+/// let schema = Schema::from(vec![
 ///     ("name", DataType::Varchar(10)),
 ///     ("age", DataType::I32),
 ///     ("height", DataType::F64),
 ///   ]);
 ///   write_header(buffer_writer, &header).unwrap();
 /// ```
-/// Header pattern:
+/// Schema pattern:
 /// | data_type | label_size | label | data_type | label_size | label |
 // TODO: determitar tamanho fixo para a label
 pub fn write_header(
@@ -618,7 +623,7 @@ mod tests {
 
     #[test]
     fn test_write_and_reader_header() {
-        let original_properties = Header::try_from(vec![
+        let original_properties = Schema::try_from(vec![
             ("varchar", DataType::Varchar(10)),
             ("text", DataType::Text),
             ("i32", DataType::I32),
@@ -667,7 +672,7 @@ mod tests {
 
     #[test]
     fn test_header_builder() {
-        let mut header = Header::try_from(vec![
+        let mut header = Schema::try_from(vec![
             ("varchar", DataType::Varchar(10)),
             ("text", DataType::Text),
             ("i32", DataType::I32),
@@ -713,7 +718,7 @@ mod tests {
 
     #[test]
     fn test_bytes_position() {
-        let header = Header::try_from(vec![
+        let schema = Schema::try_from(vec![
             ("varchar", DataType::Varchar(10)),
             ("text", DataType::Text),
             ("text2", DataType::Text),
@@ -722,20 +727,20 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(header.headers.get(0).unwrap().get_byte_position(), Some(0));
-        assert_eq!(header.headers.get(1).unwrap().get_byte_position(), Some(10));
+        assert_eq!(schema.properties.get(0).unwrap().get_byte_position(), Some(0));
+        assert_eq!(schema.properties.get(1).unwrap().get_byte_position(), Some(10));
         assert_eq!(
-            header.headers.get(2).unwrap().get_byte_position(),
+            schema.properties.get(2).unwrap().get_byte_position(),
             Some(DEFAULT_SIZE_I32 + 10)
         );
-        assert_eq!(header.headers.get(3).unwrap().get_byte_position(), None);
-        assert_eq!(header.headers.get(4).unwrap().get_byte_position(), None);
-        assert_eq!(header.get_dynamic_size_positions(), vec![3, 4]);
+        assert_eq!(schema.properties.get(3).unwrap().get_byte_position(), None);
+        assert_eq!(schema.properties.get(4).unwrap().get_byte_position(), None);
+        assert_eq!(schema.get_dynamic_size_positions(), vec![3, 4]);
     }
 
     #[test]
     fn test_label_exists() {
-        let mut builder = BuilderHeader::new();
+        let mut builder = BuilderSchema::new();
 
         assert!(builder
             .add("varchar".as_bytes().to_vec(), DataType::Varchar(10))

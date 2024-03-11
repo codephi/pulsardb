@@ -2,7 +2,7 @@ use byteorder::ReadBytesExt;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 
-use crate::header::{DataType, Header, PropertySchema};
+use crate::header::{DataType, Schema, PropertySchema};
 use crate::{
     th, th_msg, th_none, Error, DEFAULT_SIZE_U32, FALSE_BIN_VALUE, NULL_BIN_VALUE, TRUE_BIN_VALUE,
 };
@@ -51,7 +51,7 @@ impl Data {
 /// Builder for Data struct
 /// # Example
 /// ```
-/// let header = Header::from(vec![
+/// let schema = Schema::from(vec![
 ///   ("varchar", DataType::Varchar(30)),
 ///   ("boolean", DataType::Boolean),
 ///   ("text", DataType::Text),
@@ -69,24 +69,24 @@ impl Data {
 /// let data = builder.build();
 /// ```
 pub struct BuilderProperties<'a> {
-    header: &'a Header,
+    schema: &'a Schema,
     properties: Vec<Data>,
     dynamic_values: Vec<Data>,
 }
 
 impl<'a> BuilderProperties<'a> {
     /// Create a new BuilderProperties
-    pub fn new(header: &'a Header) -> Self {
+    pub fn new(schema: &'a Schema) -> Self {
         Self {
-            header,
-            properties: Vec::with_capacity(header.len()),
+            schema,
+            properties: Vec::with_capacity(schema.len()),
             dynamic_values: Vec::new(),
         }
     }
 
     /// Create a new BuilderProperties from properties without orderer values.
     /// This method is unsafe because it does not check the order of the values.
-    pub fn from_properties_unsafe(header: &'a Header, properties: Vec<Data>) -> Properties<'a> {
+    pub fn from_properties_unsafe(header: &'a Schema, properties: Vec<Data>) -> Properties<'a> {
         let builder = {
             let mut builder = Self::new(header);
 
@@ -99,7 +99,7 @@ impl<'a> BuilderProperties<'a> {
     }
 
     /// Create a new BuilderProperties from properties, ordering the values by the header
-    pub fn from_properties(header: &'a Header, values: Vec<Data>) -> Properties<'a> {
+    pub fn from_properties(header: &'a Schema, values: Vec<Data>) -> Properties<'a> {
         let builder: BuilderProperties<'_> = {
             let mut builder = Self::new(header);
 
@@ -116,7 +116,7 @@ impl<'a> BuilderProperties<'a> {
     /// Add a property to the builder
     pub fn add(&mut self, value: Data) {
         let position = self.properties.len() + self.dynamic_values.len();
-        let prop = self.header.get_by_original_position(position).unwrap();
+        let prop = self.schema.get_by_original_position(position).unwrap();
 
         if prop.is_dynamic_size() {
             self.dynamic_values.push(value);
@@ -131,7 +131,7 @@ impl<'a> BuilderProperties<'a> {
         properties.append(&mut self.dynamic_values.clone());
 
         Properties {
-            header: self.header,
+            header: self.schema,
             properties,
         }
     }
@@ -141,9 +141,9 @@ impl<'a> BuilderProperties<'a> {
 /// # Example
 /// ```
 /// use std::fs;
-/// use sheet::{DataType, Data, Header, BuilderProperties};
+/// use sheet::{DataType, Data, Schema, BuilderProperties};
 ///
-/// let header = Header::from(vec![
+/// let schema = Schema::from(vec![
 ///   ("varchar", DataType::Varchar(30)),
 ///   ("boolean", DataType::Boolean),
 ///   ("text", DataType::Text),
@@ -171,13 +171,13 @@ impl<'a> BuilderProperties<'a> {
 /// ```
 #[derive(Debug)]
 pub struct Properties<'a> {
-    header: &'a Header,
+    header: &'a Schema,
     properties: Vec<Data>,
 }
 
 impl<'a> Properties<'a> {
     /// Create a new Data struct
-    pub fn new(header: &'a Header) -> Self {
+    pub fn new(header: &'a Schema) -> Self {
         Self {
             header,
             properties: Vec::with_capacity(header.len()),
@@ -334,7 +334,7 @@ macro_rules! read_data_by_byte_position {
 /// # Example
 /// ```
 /// let buffer_writer = &mut BufWriter::new(File::create("values.bin").unwrap());
-/// let header = vec![
+/// let schema = vec![
 ///    PropertySchema::from(("varchar", DataType::Varchar(30))),
 ///    PropertySchema::from(("boolean", DataType::Boolean)),
 ///    PropertySchema::from(("text", DataType::Text)),
@@ -374,7 +374,7 @@ macro_rules! read_data_by_byte_position {
 /// | data_type (only Text) | value | data_type (only Text) | value | ...
 pub fn write_properties(
     buffer_writer: &mut BufWriter<File>,
-    header: &Header,
+    header: &Schema,
     values: &Vec<Data>,
 ) -> Result<(), Error> {
     for prop in header.headers_iter() {
@@ -416,7 +416,7 @@ pub fn write_properties(
                 }
                 _ => {
                     return Err(Error::WriteInvalidDataTypeString(format!(
-                        "Data is String, but Header is {}",
+                        "Data is String, but Schema is {}",
                         prop.get_data_type()
                     )))
                 }
@@ -470,7 +470,7 @@ pub fn write_properties(
 /// # Example
 /// ```
 /// let buffer_reader = &mut BufReader::new(File::open("values.bin").unwrap());
-/// let header = vec![
+/// let schema = vec![
 ///    ("varchar", DataType::Varchar(30)),
 ///    ("boolean", DataType::Boolean),
 ///    ("text", DataType::Text),
@@ -509,7 +509,7 @@ pub fn write_properties(
 /// ```
 pub fn read_properties(
     buffer_reader: &mut BufReader<File>,
-    header: &Header,
+    header: &Schema,
 ) -> Result<Vec<Data>, Error> {
     let mut values = Vec::with_capacity(header.len());
 
@@ -571,7 +571,7 @@ pub fn read_properties(
 /// Different from read_properties, this function reads the properties by byte position
 pub fn read_properties_by_byte_position(
     buffer_reader: &mut BufReader<File>,
-    header: &Header,
+    header: &Schema,
     property_headers: &Vec<&PropertySchema>,
 ) -> Result<Vec<Data>, Error> {
     let mut values = Vec::new();
@@ -701,7 +701,7 @@ mod tests {
 
     #[test]
     fn test_write_and_read_properties() {
-        let header = Header::try_from(vec![
+        let schema = Schema::try_from(vec![
             ("varchar", DataType::Varchar(30)),
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
@@ -741,13 +741,13 @@ mod tests {
 
         let buffer_writer = &mut BufWriter::new(File::create(path).unwrap());
 
-        write_properties(buffer_writer, &header, &values).unwrap();
+        write_properties(buffer_writer, &schema, &values).unwrap();
 
         buffer_writer.flush().unwrap();
 
         let buffer_reader = &mut BufReader::new(File::open(path).unwrap());
 
-        let read_properties = read_properties(buffer_reader, &header).unwrap();
+        let read_properties = read_properties(buffer_reader, &schema).unwrap();
         assert_eq!(values, read_properties);
 
         fs::remove_file(path).unwrap();
@@ -755,7 +755,7 @@ mod tests {
 
     #[test]
     fn test_data_struct() {
-        let header = Header::try_from(vec![
+        let schema = Schema::try_from(vec![
             ("varchar", DataType::Varchar(30)),
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
@@ -777,7 +777,7 @@ mod tests {
             Data::String("text".to_string()),
         ];
 
-        let mut data = BuilderProperties::from_properties(&header, values);
+        let mut data = BuilderProperties::from_properties(&schema, values);
 
         let path = "test_data_struct.bin";
 
@@ -792,7 +792,7 @@ mod tests {
 
     #[test]
     fn test_data_struct_unsafe() {
-        let header = Header::try_from(vec![
+        let schema = Schema::try_from(vec![
             ("varchar", DataType::Varchar(30)),
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
@@ -806,7 +806,7 @@ mod tests {
             Data::I8(8),
             Data::String("text".to_string()),
         ];
-        let mut data = BuilderProperties::from_properties_unsafe(&header, values.clone());
+        let mut data = BuilderProperties::from_properties_unsafe(&schema, values.clone());
 
         let path = "test_data_struct_unsafe.bin";
 
@@ -821,7 +821,7 @@ mod tests {
 
     #[test]
     fn test_read_by_original_positions() {
-        let header = Header::try_from(vec![
+        let schema = Schema::try_from(vec![
             ("text", DataType::Text),
             ("varchar", DataType::Varchar(30)),
             ("text", DataType::Text),
@@ -840,7 +840,7 @@ mod tests {
             Data::I8(8),
         ];
 
-        let mut data = BuilderProperties::from_properties(&header, values.clone());
+        let mut data = BuilderProperties::from_properties(&schema, values.clone());
 
         let path = "test_read_by_original_positions.bin";
 
@@ -864,7 +864,7 @@ mod tests {
 
     #[test]
     fn test_read_by_positions() {
-        let header = Header::try_from(vec![
+        let schema = Schema::try_from(vec![
             ("varchar", DataType::Varchar(30)),
             ("boolean", DataType::Boolean),
             ("text", DataType::Text),
@@ -879,7 +879,7 @@ mod tests {
             Data::I8(8),
         ];
 
-        let mut data = BuilderProperties::from_properties(&header, values.clone());
+        let mut data = BuilderProperties::from_properties(&schema, values.clone());
 
         let path = "test_read_by_positions.bin";
 

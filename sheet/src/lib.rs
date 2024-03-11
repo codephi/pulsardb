@@ -6,7 +6,7 @@
 //!
 //! ## Key Features
 //!
-//! - **Header and Properties Manipulation**: Define and access complex data structures through headers
+//! - **Schema and Properties Manipulation**: Define and access complex data structures through headers
 //!   and properties, enabling efficient data read and write.
 //! - **Objective Reading**: Allows for selective reading of specific properties from a file, avoiding
 //!   the need to process irrelevant data.
@@ -27,12 +27,12 @@
 //! ### Writing Data
 //!
 //! ```rust
-//! use sheet::{BuilderHeader, BuilderProperties, DataType, Data};
+//! use sheet::{BuilderSchema, BuilderProperties, DataType, Data};
 //!
-//! let mut builder_header = BuilderHeader::new();
+//! let mut builder_header = BuilderSchema::new();
 //! builder_header.add("name".into(), DataType::Varchar(50)).unwrap();
 //! builder_header.add("age".into(), DataType::U8).unwrap();
-//! let header = builder_header.build();
+//! let schema = builder_header.build();
 //!
 //! header.write("config_header.bin").unwrap();
 //!
@@ -47,9 +47,9 @@
 //! ### Reading Data
 //!
 //! ```rust
-//! use sheet::{Header, Properties};
+//! use sheet::{Schema, Properties};
 //!
-//! let mut header = Header::new();
+//! let mut header = Schema::new();
 //! header.read("config_header.bin").unwrap();
 //!
 //! let mut properties = Properties::new(&header);

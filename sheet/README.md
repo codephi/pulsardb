@@ -39,9 +39,9 @@ Here's a simple example of how to use Sheet to write and read data:
 
 ### Writing Data
 ```rust
-use sheet::{BuilderHeader, BuilderProperties, DataType, Data};
+use sheet::{BuilderSchema, BuilderProperties, DataType, Data};
 
-let mut builder_header = BuilderHeader::new();
+let mut builder_header = BuilderSchema::new();
 builder_header.add("name".into(), DataType::Varchar(50)).unwrap();
 builder_header.add("age".into(), DataType::U8).unwrap();
 let header = builder_header.build();
