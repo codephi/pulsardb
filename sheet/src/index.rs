@@ -121,7 +121,8 @@ pub fn add_item_index(
     Ok(())
 }
 
-// TODO: precisa refatorar para melhorar o desempenho da remoção
+// TODO: precisa refatorar para melhorar o desempenho da remoção, talvez usar rayon
+// TODO: Isso é necessário pq a função esta varrendo todo o binario e jogano na memoria, caso o binario seja muito granda, vai dar ruim.
 pub fn remove_item_index(
     buffer_writer: &mut BufWriter<&File>,
     buffer_reader: &mut BufReader<&File>,
