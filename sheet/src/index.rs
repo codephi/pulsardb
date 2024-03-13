@@ -1,3 +1,12 @@
+//! # Index
+//!
+//! The index module is responsible for managing the index file.
+//!
+//! ## File schema
+//! | total_size | sort_key_1 | sort_key_2 | ... | sort_key_n |
+//! |------------|------------|------------|-----|------------|
+//! | 4 bytes    | n bytes    | n bytes    | ... | n bytes    |
+//!
 use std::{fs::File, io::BufWriter};
 use std::io::{BufReader, Seek, Write};
 use std::io::Read;
@@ -208,80 +217,6 @@ impl<'a> ReadIndexOptions<'a> {
             filter,
             limit: None,
             last_position: None,
-            order: None,
-        }
-    }
-
-    pub fn from_filter_and_limit(filter: ReadIndexFilter<'a>, limit: usize) -> Self {
-        Self {
-            filter,
-            limit: Some(limit),
-            last_position: None,
-            order: None,
-        }
-    }
-
-    pub fn from_filter_and_last_position(
-        filter: ReadIndexFilter<'a>,
-        last_position: usize,
-    ) -> Self {
-        Self {
-            filter,
-            limit: None,
-            last_position: Some(last_position),
-            order: None,
-        }
-    }
-
-    pub fn from_filter_limit_and_last_position(
-        filter: ReadIndexFilter<'a>,
-        limit: usize,
-        last_position: usize,
-    ) -> Self {
-        Self {
-            filter,
-            limit: Some(limit),
-            last_position: Some(last_position),
-            order: None,
-        }
-    }
-
-    pub fn from_limit(limit: usize) -> Self {
-        Self {
-            filter: ReadIndexFilter::None,
-            limit: Some(limit),
-            last_position: None,
-            order: None,
-        }
-    }
-
-    pub fn from_last_position(last_position: usize) -> Self {
-        Self {
-            filter: ReadIndexFilter::None,
-            limit: None,
-            last_position: Some(last_position),
-            order: None,
-        }
-    }
-
-    pub fn from_limit_and_last_position(limit: usize, last_position: usize) -> Self {
-        Self {
-            filter: ReadIndexFilter::None,
-            limit: Some(limit),
-            last_position: Some(last_position),
-            order: None,
-        }
-    }
-
-    pub fn from_filter_and_limit_and_last_position(
-        filter: ReadIndexFilter<'a>,
-        limit: usize,
-        last_position: usize,
-    ) -> Self {
-        Self {
-            filter,
-            limit: Some(limit),
-            last_position: Some(last_position),
             order: None,
         }
     }

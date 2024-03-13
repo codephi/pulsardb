@@ -138,4 +138,8 @@ pub enum Error {
     SortNameSize,
     ParseString,
     SortKeyPosition,
+    ReadPropertiesInvalidSchemaId,
+    ReadPropertiesGetSchema,
+    SchemaNotFound,
+    SortKeyNotFound
 }
