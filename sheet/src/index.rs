@@ -13,12 +13,11 @@ use std::io::Read;
 
 use byteorder::ReadBytesExt;
 
-use crate::{DEFAULT_LIMIT_INDEX_READ, DEFAULT_ORDER_INDEX_READ, DEFAULT_SIZE_U32, Error, th_msg, UUID_SIZE};
+use crate::{DEFAULT_LIMIT_INDEX_READ, DEFAULT_ORDER_INDEX_READ, DEFAULT_SIZE_U32, Error, INDEX_KEY_SIZE, SORT_KEY_SIZE, th_msg, UUID_SIZE};
 
 pub fn write_index_raw(
     buffer_writer: &mut BufWriter<&File>,
     index: Vec<Vec<u8>>,
-    size_index_item: u8,
 ) -> Result<(), Error> {
     // Total size of the index
     th_msg!(
@@ -27,7 +26,7 @@ pub fn write_index_raw(
     );
 
     for item in index {
-        let mut buffer = vec![0; size_index_item as usize];
+        let mut buffer = vec![0; INDEX_KEY_SIZE];
         buffer[0..item.len()].copy_from_slice(&item);
 
         th_msg!(buffer_writer.write_all(&buffer), Error::Io);
@@ -38,7 +37,6 @@ pub fn write_index_raw(
 
 pub fn read_index_raw(
     buffer_reader: &mut BufReader<&File>,
-    size_index_item: u8,
 ) -> Result<Vec<Vec<u8>>, Error> {
     let total_size = th_msg!(
         buffer_reader.read_u32::<byteorder::LittleEndian>(),
@@ -48,7 +46,7 @@ pub fn read_index_raw(
     let mut index = Vec::with_capacity(total_size);
 
     for _ in 0..total_size {
-        let mut buffer = vec![0; size_index_item as usize];
+        let mut buffer = vec![0; INDEX_KEY_SIZE];
         th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
         index.push(buffer);
     }
@@ -59,19 +57,17 @@ pub fn read_index_raw(
 pub fn write_index_ordered(
     buffer_writer: &mut BufWriter<&File>,
     index: Vec<Vec<u8>>,
-    size_index_item: u8,
 ) -> Result<(), Error> {
     let mut index = index;
     // sort asc index;
     index.sort();
-    write_index_raw(buffer_writer, index, size_index_item)
+    write_index_raw(buffer_writer, index)
 }
 
 pub fn add_item_index(
     buffer_writer: &mut BufWriter<&File>,
     buffer_reader: &mut BufReader<&File>,
     item: Vec<u8>,
-    size_index_item: u8,
 ) -> Result<(), Error> {
     let total_size = th_msg!(
         buffer_reader.read_u32::<byteorder::LittleEndian>(),
@@ -79,10 +75,10 @@ pub fn add_item_index(
     ) as usize;
 
     let mut index = {
-        let mut buffer: Vec<u8> = vec![0; size_index_item as usize];
+        let mut buffer: Vec<u8> = vec![0; INDEX_KEY_SIZE];
         buffer[..item.len()].copy_from_slice(&item);
 
-        let mut vec = Vec::with_capacity((total_size + 1) * size_index_item as usize);
+        let mut vec = Vec::with_capacity((total_size + 1) * INDEX_KEY_SIZE);
         vec.append(&mut buffer);
         vec
     };
@@ -93,7 +89,7 @@ pub fn add_item_index(
     // TODO: no futuro, testar a performance com o rayon
     // talvez seja interessante paralelizar a busca caso tenha muitos itens
     for pos in 0..total_size {
-        let mut buffer = vec![0; size_index_item as usize];
+        let mut buffer = vec![0; INDEX_KEY_SIZE];
         th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
         if item < buffer {
@@ -115,7 +111,7 @@ pub fn add_item_index(
 
     th_msg!(
         buffer_writer.seek(std::io::SeekFrom::Start(
-            (position as u64 * size_index_item as u64) + DEFAULT_SIZE_U32 as u64
+            ((position * INDEX_KEY_SIZE) + DEFAULT_SIZE_U32) as u64
         )),
         Error::Io
     );
@@ -130,20 +126,19 @@ pub fn remove_item_index(
     buffer_writer: &mut BufWriter<&File>,
     buffer_reader: &mut BufReader<&File>,
     item: Vec<u8>,
-    size_index_item: u8,
 ) -> Result<(), Error> {
     let total_size = th_msg!(
         buffer_reader.read_u32::<byteorder::LittleEndian>(),
         Error::Io
     ) as usize;
 
-    let mut index = Vec::with_capacity(total_size * size_index_item as usize);
+    let mut index = Vec::with_capacity(total_size * INDEX_KEY_SIZE);
 
-    let mut target: Vec<u8> = vec![0; size_index_item as usize];
+    let mut target: Vec<u8> = vec![0; INDEX_KEY_SIZE];
     target[..item.len()].copy_from_slice(&item);
 
     for _ in 0..total_size {
-        let mut buffer = vec![0; size_index_item as usize];
+        let mut buffer = vec![0; INDEX_KEY_SIZE];
         th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
         if target == buffer {
@@ -194,9 +189,13 @@ pub enum ReadIndexOrder {
 
 #[derive(Debug)]
 pub struct ReadIndexOptions<'a> {
+    /// Filter to be used in the search
     pub filter: ReadIndexFilter<'a>,
+    /// Limit of items to be returned
     pub limit: Option<usize>,
+    /// Last position to start the search
     pub last_position: Option<usize>,
+    /// Order of the search
     pub order: Option<ReadIndexOrder>,
 }
 
@@ -231,10 +230,8 @@ pub struct IndexItem {
 
 pub fn read_index_options(
     buffer_reader: &mut BufReader<&File>,
-    size_index_item: u8,
     options: ReadIndexOptions,
 ) -> Result<Vec<IndexItem>, Error> {
-    let size_item: usize = size_index_item as usize - UUID_SIZE;
     let total_size = th_msg!(
         buffer_reader.read_u32::<byteorder::LittleEndian>(),
         Error::Io
@@ -264,7 +261,7 @@ pub fn read_index_options(
             }
 
             let position = last_position - pos - 1;
-            let byte_position = (position as u64 * size_index_item as u64) + DEFAULT_SIZE_U32 as u64;
+            let byte_position = ((position * INDEX_KEY_SIZE) + DEFAULT_SIZE_U32) as u64;
 
             if byte_position < default_size_u32_as_u64 {
                 break;
@@ -278,7 +275,7 @@ pub fn read_index_options(
             position as u32
         } else {
             let position = last_position + pos;
-            let byte_position = (position as u64 * size_index_item as u64) + DEFAULT_SIZE_U32 as u64;
+            let byte_position = ((position * INDEX_KEY_SIZE) + DEFAULT_SIZE_U32) as u64;
 
             if position >= total_size {
                 break;
@@ -292,7 +289,7 @@ pub fn read_index_options(
             position as u32
         };
 
-        let mut item = vec![0; size_item];
+        let mut item = vec![0; SORT_KEY_SIZE];
         th_msg!(buffer_reader.read_exact(&mut item), Error::Io);
 
         let mut hash = vec![0; UUID_SIZE];
@@ -544,7 +541,7 @@ pub fn read_index_options(
 mod tests {
     use std::fs::remove_file;
 
-    use crate::{create_index_item, create_index_item_uuid, UUID_SIZE};
+    use crate::{create_index_item, create_index_item_uuid, index_sort_key};
 
     use super::*;
 
@@ -553,16 +550,15 @@ mod tests {
         let file_name = "test_write_index_raw";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
-        let size_index_item = UUID_SIZE + 5;
 
         let index = vec![
-            create_index_item!(b"aaaaa", size_index_item),
-            create_index_item!(b"bbbbb", size_index_item),
-            create_index_item!(b"ccccc", size_index_item),
-            create_index_item!(b"ddddd", size_index_item),
+            create_index_item!(b"aaaaa"),
+            create_index_item!(b"bbbbb"),
+            create_index_item!(b"ccccc"),
+            create_index_item!(b"ddddd"),
         ];
 
-        write_index_raw(&mut buffer_writer, index, size_index_item as u8).unwrap();
+        write_index_raw(&mut buffer_writer, index).unwrap();
 
         remove_file(file_name).unwrap();
     }
@@ -572,16 +568,15 @@ mod tests {
         let file_name = "test_read_index_raw";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
-        let size_index_item = UUID_SIZE + 5;
 
         let index = vec![
-            create_index_item!(b"aaaaa", size_index_item),
-            create_index_item!(b"bbbbb", size_index_item),
-            create_index_item!(b"ccccc", size_index_item),
-            create_index_item!(b"ddddd", size_index_item),
+            create_index_item!(b"aaaaa"),
+            create_index_item!(b"bbbbb"),
+            create_index_item!(b"ccccc"),
+            create_index_item!(b"ddddd"),
         ];
 
-        write_index_raw(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+        write_index_raw(&mut buffer_writer, index.clone()).unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -589,7 +584,7 @@ mod tests {
 
         let mut buffer_reader = BufReader::new(&file);
 
-        let index_read = read_index_raw(&mut buffer_reader, size_index_item as u8).unwrap();
+        let index_read = read_index_raw(&mut buffer_reader).unwrap();
 
         assert_eq!(index, index_read);
 
@@ -601,16 +596,15 @@ mod tests {
         let file_name = "test_write_index_ordered";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
-        let size_index_item = UUID_SIZE + 5;
 
         let index = vec![
-            create_index_item!(b"ccccc", size_index_item),
-            create_index_item!(b"ddddd", size_index_item),
-            create_index_item!(b"aaaaa", size_index_item),
-            create_index_item!(b"bbbbb", size_index_item),
+            create_index_item!(b"ccccc"),
+            create_index_item!(b"ddddd"),
+            create_index_item!(b"aaaaa"),
+            create_index_item!(b"bbbbb"),
         ];
 
-        write_index_ordered(&mut buffer_writer, index, size_index_item as u8).unwrap();
+        write_index_ordered(&mut buffer_writer, index).unwrap();
 
         remove_file(file_name).unwrap();
     }
@@ -620,16 +614,15 @@ mod tests {
         let file_name = "test_add_item_index";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
-        let size_index_item = UUID_SIZE + 5;
 
         let index = vec![
-            create_index_item!(b"1a", size_index_item),
-            create_index_item!(b"2b", size_index_item),
-            create_index_item!(b"3c", size_index_item),
-            create_index_item!(b"4e", size_index_item),
+            create_index_item!(b"1a"),
+            create_index_item!(b"2b"),
+            create_index_item!(b"3c"),
+            create_index_item!(b"4e"),
         ];
 
-        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+        write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -641,13 +634,12 @@ mod tests {
         let mut buffer_reader = BufReader::new(&file);
         let mut buffer_writer = BufWriter::new(&file);
 
-        let item: Vec<u8> = create_index_item!(b"2c", size_index_item);
+        let item: Vec<u8> = create_index_item!(b"2c");
 
         add_item_index(
             &mut buffer_writer,
             &mut buffer_reader,
             item.clone(),
-            size_index_item as u8,
         )
         .unwrap();
 
@@ -658,7 +650,7 @@ mod tests {
         let mut buffer_reader = BufReader::new(&file);
 
         let index_read = {
-            let data = read_index_raw(&mut buffer_reader, size_index_item as u8).unwrap();
+            let data = read_index_raw(&mut buffer_reader).unwrap();
             data.iter()
                 .map(|item| String::from_utf8(item.clone()).unwrap())
                 .collect::<Vec<String>>()
@@ -684,16 +676,15 @@ mod tests {
         let file_name = "test_remove_item_index";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
-        let size_index_item = UUID_SIZE + 5;
 
         let index = vec![
-            create_index_item!(b"1a", size_index_item),
-            create_index_item!(b"2b", size_index_item),
-            create_index_item!(b"3c", size_index_item),
-            create_index_item!(b"4e", size_index_item),
+            create_index_item!(b"1a"),
+            create_index_item!(b"2b"),
+            create_index_item!(b"3c"),
+            create_index_item!(b"4e"),
         ];
 
-        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+        write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -709,7 +700,6 @@ mod tests {
             &mut buffer_writer,
             &mut buffer_reader,
             index.get(1).unwrap().clone(),
-            size_index_item as u8,
         )
         .unwrap();
 
@@ -720,7 +710,7 @@ mod tests {
         let mut buffer_reader = BufReader::new(&file);
 
         let index_read = {
-            let data = read_index_raw(&mut buffer_reader, size_index_item as u8).unwrap();
+            let data = read_index_raw(&mut buffer_reader).unwrap();
             data.iter()
                 .map(|item| String::from_utf8(item.clone()).unwrap())
                 .collect::<Vec<String>>()
@@ -745,16 +735,15 @@ mod tests {
         let file_name = "test_read_index_options";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
-        let size_index_item = UUID_SIZE + 15;
 
         let index = vec![
-            create_index_item!(b"hello world", size_index_item),
-            create_index_item!(b"hello dad", size_index_item),
-            create_index_item!(b"friend hello", size_index_item),
-            create_index_item!(b"code me", size_index_item),
+            create_index_item!(b"hello world"),
+            create_index_item!(b"hello dad"),
+            create_index_item!(b"friend hello"),
+            create_index_item!(b"code me"),
         ];
 
-        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+        write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -763,7 +752,6 @@ mod tests {
 
         let contains = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::Contains(&b"hello".to_vec())),
         )
         .unwrap();
@@ -773,7 +761,6 @@ mod tests {
 
         let not_contains = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::NotContains(&b"xxx".to_vec())),
         )
         .unwrap();
@@ -783,7 +770,6 @@ mod tests {
 
         let start_with = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::StartWith(&b"hello".to_vec())),
         )
         .unwrap();
@@ -793,7 +779,6 @@ mod tests {
 
         let end_with = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::EndWith(&b"e".to_vec())),
         )
         .unwrap();
@@ -803,7 +788,6 @@ mod tests {
 
         let start_and_end_with = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::StartAndEndWith(
                 &b"h".to_vec(),
                 &b"dad".to_vec(),
@@ -822,18 +806,17 @@ mod tests {
         let file_name = "test_read_index_options_date";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
-        let size_index_item = UUID_SIZE + 20;
 
         let index = vec![
-            create_index_item!(b"2022-01-05 18:25:47", size_index_item),
-            create_index_item!(b"2022-05-05 18:25:48", size_index_item),
-            create_index_item!(b"2022-05-05 18:25:48", size_index_item),
-            create_index_item!(b"2022-05-05 18:25:49", size_index_item),
-            create_index_item!(b"2022-07-05 18:25:49", size_index_item),
-            create_index_item!(b"2022-09-05 18:25:50", size_index_item),
+            create_index_item!(b"2022-01-05 18:25:47"),
+            create_index_item!(b"2022-05-05 18:25:48"),
+            create_index_item!(b"2022-05-05 18:25:48"),
+            create_index_item!(b"2022-05-05 18:25:49"),
+            create_index_item!(b"2022-07-05 18:25:49"),
+            create_index_item!(b"2022-09-05 18:25:50"),
         ];
 
-        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+        write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -842,7 +825,6 @@ mod tests {
 
         let equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::Equal(&b"2022-05-05 18:25:48".to_vec())),
         )
         .unwrap();
@@ -852,7 +834,6 @@ mod tests {
 
         let not_equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::NotEqual(
                 &b"2022-05-05 18:25:48".to_vec(),
             )),
@@ -864,7 +845,6 @@ mod tests {
 
         let granter_than = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::GranterThan(
                 &b"2022-05-05 18:25:48".to_vec(),
             )),
@@ -876,7 +856,6 @@ mod tests {
 
         let less_than = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::LessThan(
                 &b"2022-05-05 18:25:48".to_vec(),
             )),
@@ -888,7 +867,6 @@ mod tests {
 
         let granter_than_or_equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::GranterThanOrEqual(
                 &b"2022-05-05 18:25:48".to_vec(),
             )),
@@ -900,7 +878,6 @@ mod tests {
 
         let less_than_or_equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::LessThanOrEqual(
                 &b"2022-05-05 18:25:48".to_vec(),
             )),
@@ -918,18 +895,17 @@ mod tests {
         let file_name = "test_read_index_options_math_alphabet";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
-        let size_index_item = UUID_SIZE + 10;
 
         let index = vec![
-            create_index_item!(b"alice", size_index_item),
-            create_index_item!(b"bob", size_index_item),
-            create_index_item!(b"carlos", size_index_item),
-            create_index_item!(b"carol", size_index_item),
-            create_index_item!(b"david", size_index_item),
-            create_index_item!(b"edward", size_index_item),
+            create_index_item!(b"alice"),
+            create_index_item!(b"bob"),
+            create_index_item!(b"carlos"),
+            create_index_item!(b"carol"),
+            create_index_item!(b"david"),
+            create_index_item!(b"edward"),
         ];
 
-        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+        write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -938,7 +914,6 @@ mod tests {
 
         let equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::Equal(&b"carol".to_vec())),
         )
         .unwrap();
@@ -948,7 +923,6 @@ mod tests {
 
         let not_equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::NotEqual(&b"carol".to_vec())),
         )
         .unwrap();
@@ -958,7 +932,6 @@ mod tests {
 
         let granter_than = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::GranterThan(&b"carol".to_vec())),
         )
         .unwrap();
@@ -968,7 +941,6 @@ mod tests {
 
         let less_than = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::LessThan(&b"carol".to_vec())),
         )
         .unwrap();
@@ -978,7 +950,6 @@ mod tests {
 
         let granter_than_or_equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::GranterThanOrEqual(&b"carol".to_vec())),
         )
         .unwrap();
@@ -988,7 +959,6 @@ mod tests {
 
         let less_than_or_equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::LessThanOrEqual(&b"carol".to_vec())),
         )
         .unwrap();
@@ -1002,18 +972,17 @@ mod tests {
         let file_name = "test_read_index_options_math_number";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
-        let size_index_item = UUID_SIZE + 10;
 
         let index = vec![
-            create_index_item!(b"100", size_index_item),
-            create_index_item!(b"200", size_index_item),
-            create_index_item!(b"200.1", size_index_item),
-            create_index_item!(b"300.2", size_index_item),
-            create_index_item!(b"300.1", size_index_item),
-            create_index_item!(b"300", size_index_item),
+            create_index_item!(b"100"),
+            create_index_item!(b"200"),
+            create_index_item!(b"200.1"),
+            create_index_item!(b"300.2"),
+            create_index_item!(b"300.1"),
+            create_index_item!(b"300"),
         ];
 
-        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+        write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -1022,7 +991,6 @@ mod tests {
 
         let equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::Equal(&b"200".to_vec())),
         )
         .unwrap();
@@ -1032,7 +1000,6 @@ mod tests {
 
         let not_equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::NotEqual(&b"200".to_vec())),
         )
         .unwrap();
@@ -1042,7 +1009,6 @@ mod tests {
 
         let granter_than = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::GranterThan(&b"200".to_vec())),
         )
         .unwrap();
@@ -1052,7 +1018,6 @@ mod tests {
 
         let less_than = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::LessThan(&b"200".to_vec())),
         )
         .unwrap();
@@ -1062,7 +1027,6 @@ mod tests {
 
         let granter_than_or_equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::GranterThanOrEqual(&b"200".to_vec())),
         )
         .unwrap();
@@ -1072,7 +1036,6 @@ mod tests {
 
         let less_than_or_equal = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions::from_filter(ReadIndexFilter::LessThanOrEqual(&b"200".to_vec())),
         )
         .unwrap();
@@ -1086,12 +1049,11 @@ mod tests {
         let file_name = "test_read_index_order";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
-        let size_index_item = UUID_SIZE + 5;
 
-        let item1 = create_index_item_uuid!(b"aaaaa", size_index_item);
-        let item2 = create_index_item_uuid!(b"bbbbb", size_index_item);
-        let item3 = create_index_item_uuid!(b"ccccc", size_index_item);
-        let item4 = create_index_item_uuid!(b"ddddd", size_index_item);
+        let item1 = create_index_item_uuid!(b"aaaaa");
+        let item2 = create_index_item_uuid!(b"bbbbb");
+        let item3 = create_index_item_uuid!(b"ccccc");
+        let item4 = create_index_item_uuid!(b"ddddd");
 
         let index = vec![
             item1.0.clone(),
@@ -1100,7 +1062,7 @@ mod tests {
             item4.0.clone(),
         ];
 
-        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+        write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -1109,7 +1071,6 @@ mod tests {
 
         let asc = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions {
                 filter: ReadIndexFilter::None,
                 limit: None,
@@ -1124,7 +1085,6 @@ mod tests {
 
         let desc = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions {
                 filter: ReadIndexFilter::None,
                 limit: Some(2),
@@ -1136,12 +1096,13 @@ mod tests {
 
         assert_eq!(vec![
             IndexItem {
-                item: b"ddddd".to_vec(),
+                // this string need to be 100 bytes
+                item: index_sort_key!(b"ddddd"),
                 hash: item4.1,
                 position: 3
             },
             IndexItem {
-                item: b"ccccc".to_vec(),
+                item: index_sort_key!(b"ccccc"),
                 hash: item3.1,
                 position: 2
             }
@@ -1151,7 +1112,6 @@ mod tests {
 
         let asc = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions {
                 filter: ReadIndexFilter::None,
                 limit: Some(2),
@@ -1163,12 +1123,12 @@ mod tests {
 
         assert_eq!(vec![
             IndexItem {
-                item: b"aaaaa".to_vec(),
+                item: index_sort_key!(b"aaaaa"),
                 hash: item1.1,
                 position: 0
             },
             IndexItem {
-                item: b"bbbbb".to_vec(),
+                item: index_sort_key!(b"bbbbb"),
                 hash: item2.1,
                 position: 1
             },
@@ -1182,12 +1142,11 @@ mod tests {
         let file_name = "test_read_index_last_position_and_order";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
-        let size_index_item = UUID_SIZE + 5;
 
-        let item1 = create_index_item_uuid!(b"aaaaa", size_index_item);
-        let item2 = create_index_item_uuid!(b"bbbbb", size_index_item);
-        let item3 = create_index_item_uuid!(b"ccccc", size_index_item);
-        let item4 = create_index_item_uuid!(b"ddddd", size_index_item);
+        let item1 = create_index_item_uuid!(b"aaaaa");
+        let item2 = create_index_item_uuid!(b"bbbbb");
+        let item3 = create_index_item_uuid!(b"ccccc");
+        let item4 = create_index_item_uuid!(b"ddddd");
 
         let index = vec![
             item1.0.clone(),
@@ -1196,7 +1155,7 @@ mod tests {
             item4.0.clone(),
         ];
 
-        write_index_ordered(&mut buffer_writer, index.clone(), size_index_item as u8).unwrap();
+        write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -1205,7 +1164,6 @@ mod tests {
 
         let asc = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions {
                 filter: ReadIndexFilter::None,
                 limit: None,
@@ -1220,7 +1178,6 @@ mod tests {
 
         let desc = read_index_options(
             &mut buffer_reader,
-            size_index_item as u8,
             ReadIndexOptions {
                 filter: ReadIndexFilter::None,
                 limit: None,
@@ -1232,12 +1189,12 @@ mod tests {
 
         assert_eq!(vec![
             IndexItem {
-                item: b"bbbbb".to_vec(),
+                item: index_sort_key!(b"bbbbb"),
                 hash: item2.1,
                 position: 1
             },
             IndexItem {
-                item: b"aaaaa".to_vec(),
+                item: index_sort_key!(b"aaaaa"),
                 hash: item1.1,
                 position: 0
             }

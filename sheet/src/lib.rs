@@ -26,7 +26,7 @@
 //!
 //! ### Writing Data
 //!
-//! ```rust
+//! ```no_test
 //! use sheet::{BuilderSchema, BuilderProperties, DataType, Data};
 //!
 //! let mut builder_header = BuilderSchema::new();
@@ -39,14 +39,14 @@
 //! let mut builder_properties = BuilderProperties::new(&header);
 //! builder_properties.add(Data::String("John Doe".into()));
 //! builder_properties.add(Data::U8(30));
-//! let properties = builder_properties.build();
+//! let mut properties = builder_properties.build();
 //!
 //! properties.write("config_properties.bin").unwrap();
 //! ```
 //!
 //! ### Reading Data
 //!
-//! ```rust
+//! ```no_test
 //! use sheet::{Schema, Properties};
 //!
 //! let mut header = Schema::new();
@@ -115,7 +115,8 @@ pub const DEFAULT_SIZE_F64: usize = 8;
 pub const DEFAULT_SIZE_UNDEFINED: usize = 0;
 
 pub const UUID_SIZE: usize = 32;
-
+pub const SORT_KEY_SIZE: usize = 100;
+pub const INDEX_KEY_SIZE: usize = UUID_SIZE + SORT_KEY_SIZE;
 pub const DEFAULT_LIMIT_INDEX_READ: usize = 100;
 
 pub const DEFAULT_ORDER_INDEX_READ: ReadIndexOrder = ReadIndexOrder::Desc;

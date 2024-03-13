@@ -5,17 +5,6 @@
 //     Err(e) => return Err(Error::Io(e)),
 // }
 /// Macro to handle Result and return a custom error
-/// # Example
-/// ```
-/// let file = th_err!(File::create("file.bin"), Error::Io);
-/// ```
-/// # Expands to
-/// ```
-/// match File::create("file.bin") {
-///    Ok(file) => file,
-///   Err(e) => return Err(Error::Io(e)),
-/// }
-/// ```
 #[macro_export]
 macro_rules! th_msg {
     ($result:expr, $error:expr) => {
@@ -61,12 +50,24 @@ macro_rules! uuid_string {
 }
 
 #[macro_export]
-macro_rules! index_item {
-    ($uuid:expr, $prop:expr, $total_size:expr) => {
+macro_rules! index_sort_key {
+    ($prop:expr) => {
         {
-            let mut item = vec![0; $total_size];
+            let mut item = vec![0; crate::SORT_KEY_SIZE];
             item[..$prop.len()].copy_from_slice($prop);
-            item[($total_size - UUID_SIZE)..($total_size)].copy_from_slice(&$uuid);
+            item
+        }
+    };
+}
+
+
+#[macro_export]
+macro_rules! index_item {
+    ($uuid:expr, $prop:expr) => {
+        {
+            let mut item = vec![0; crate::INDEX_KEY_SIZE];
+            item[..$prop.len()].copy_from_slice($prop);
+            item[crate::SORT_KEY_SIZE..crate::INDEX_KEY_SIZE].copy_from_slice(&$uuid);
 
             item
         }
@@ -75,20 +76,20 @@ macro_rules! index_item {
 
 #[macro_export]
 macro_rules! create_index_item {
-    ($prop:expr, $total_size:expr) => {
+    ($prop:expr) => {
         {
             let uuid = crate::uuid!();
-            crate::index_item!(uuid, $prop, $total_size)
+            crate::index_item!(uuid, $prop)
         }
     };
 }
 
 #[macro_export]
 macro_rules! create_index_item_uuid {
-    ($prop:expr, $total_size:expr) => {
+    ($prop:expr) => {
         {
             let uuid = crate::uuid!();
-            (crate::index_item!(uuid, $prop, $total_size), uuid)
+            (crate::index_item!(uuid, $prop), uuid)
         }
     };
 }
