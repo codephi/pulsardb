@@ -15,7 +15,7 @@ use byteorder::ReadBytesExt;
 
 use crate::{
     DEFAULT_LIMIT_INDEX_READ, DEFAULT_ORDER_INDEX_READ, DEFAULT_SIZE_U32, Error, INDEX_KEY_SIZE,
-    SORT_KEY_SIZE, th_msg, UUID_SIZE,
+    index_sort_key, SORT_KEY_SIZE, th_msg, UUID_SIZE,
 };
 
 pub fn write_index_raw(
@@ -130,6 +130,47 @@ pub fn add_item_index(
         );
 
         th_msg!(buffer_writer.write_all(&buffer), Error::Io);
+    }
+
+    Ok(())
+}
+
+pub fn update_item_index(
+    buffer_writer: &mut BufWriter<&File>,
+    buffer_reader: &mut BufReader<&File>,
+    sort_key: &Vec<u8>,
+    new_sort_key: &Vec<u8>,
+) -> Result<(), Error> {
+    th_msg!(
+        buffer_writer.seek(std::io::SeekFrom::Start(DEFAULT_SIZE_U32 as u64)),
+        Error::Io
+    );
+
+    while let Some(buffer) = {
+        let mut buffer = vec![0; INDEX_KEY_SIZE];
+        match buffer_reader.read_exact(&mut buffer) {
+            Ok(_) => Some(buffer),
+            Err(err) => return Err(Error::Io(err)),
+        }
+    } {
+        let find_sort_key = buffer[..SORT_KEY_SIZE].to_vec();
+
+        if sort_key == &find_sort_key {
+            let position =
+                (th_msg!(buffer_reader.stream_position(), Error::Io) - INDEX_KEY_SIZE as u64) + DEFAULT_SIZE_U32 as u64;
+
+            th_msg!(
+                buffer_writer.seek(std::io::SeekFrom::Start(position)),
+                Error::Io
+            );
+
+            th_msg!(
+                buffer_writer.write_all(&index_sort_key!(new_sort_key)),
+                Error::Io
+            );
+
+            break;
+        }
     }
 
     Ok(())
@@ -556,7 +597,7 @@ pub fn read_index_options(
 mod tests {
     use std::fs::remove_file;
 
-    use crate::{create_index_item, create_index_item_uuid, index_sort_key};
+    use crate::{index_item_with_hash, index_sort_key, index_item_return_hash};
 
     use super::*;
 
@@ -567,10 +608,10 @@ mod tests {
         let mut buffer_writer = BufWriter::new(&file);
 
         let index = vec![
-            create_index_item!(b"aaaaa"),
-            create_index_item!(b"bbbbb"),
-            create_index_item!(b"ccccc"),
-            create_index_item!(b"ddddd"),
+            index_item_with_hash!(b"aaaaa"),
+            index_item_with_hash!(b"bbbbb"),
+            index_item_with_hash!(b"ccccc"),
+            index_item_with_hash!(b"ddddd"),
         ];
 
         write_index_raw(&mut buffer_writer, index).unwrap();
@@ -585,10 +626,10 @@ mod tests {
         let mut buffer_writer = BufWriter::new(&file);
 
         let index = vec![
-            create_index_item!(b"aaaaa"),
-            create_index_item!(b"bbbbb"),
-            create_index_item!(b"ccccc"),
-            create_index_item!(b"ddddd"),
+            index_item_with_hash!(b"aaaaa"),
+            index_item_with_hash!(b"bbbbb"),
+            index_item_with_hash!(b"ccccc"),
+            index_item_with_hash!(b"ddddd"),
         ];
 
         write_index_raw(&mut buffer_writer, index.clone()).unwrap();
@@ -613,10 +654,10 @@ mod tests {
         let mut buffer_writer = BufWriter::new(&file);
 
         let index = vec![
-            create_index_item!(b"ccccc"),
-            create_index_item!(b"ddddd"),
-            create_index_item!(b"aaaaa"),
-            create_index_item!(b"bbbbb"),
+            index_item_with_hash!(b"ccccc"),
+            index_item_with_hash!(b"ddddd"),
+            index_item_with_hash!(b"aaaaa"),
+            index_item_with_hash!(b"bbbbb"),
         ];
 
         write_index_ordered(&mut buffer_writer, index).unwrap();
@@ -631,10 +672,10 @@ mod tests {
         let mut buffer_writer = BufWriter::new(&file);
 
         let index = vec![
-            create_index_item!(b"1a"),
-            create_index_item!(b"2b"),
-            create_index_item!(b"3c"),
-            create_index_item!(b"4e"),
+            index_item_with_hash!(b"1a"),
+            index_item_with_hash!(b"2b"),
+            index_item_with_hash!(b"3c"),
+            index_item_with_hash!(b"4e"),
         ];
 
         write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
@@ -649,7 +690,7 @@ mod tests {
         let mut buffer_reader = BufReader::new(&file);
         let mut buffer_writer = BufWriter::new(&file);
 
-        let item: Vec<u8> = create_index_item!(b"2c");
+        let item: Vec<u8> = index_item_with_hash!(b"2c");
 
         add_item_index(&mut buffer_writer, &mut buffer_reader, item.clone()).unwrap();
 
@@ -682,16 +723,16 @@ mod tests {
     }
 
     #[test]
-    fn test_add_item_index_last(){
+    fn test_add_item_index_last() {
         let file_name = "test_add_item_index_last";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
 
         let index = vec![
-            create_index_item!(b"1a"),
-            create_index_item!(b"2b"),
-            create_index_item!(b"3c"),
-            create_index_item!(b"4e"),
+            index_item_with_hash!(b"1a"),
+            index_item_with_hash!(b"2b"),
+            index_item_with_hash!(b"3c"),
+            index_item_with_hash!(b"4e"),
         ];
 
         write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
@@ -706,7 +747,7 @@ mod tests {
         let mut buffer_reader = BufReader::new(&file);
         let mut buffer_writer = BufWriter::new(&file);
 
-        let item: Vec<u8> = create_index_item!(b"5f");
+        let item: Vec<u8> = index_item_with_hash!(b"5f");
 
         add_item_index(&mut buffer_writer, &mut buffer_reader, item.clone()).unwrap();
 
@@ -738,16 +779,82 @@ mod tests {
     }
 
     #[test]
+    fn test_update_sort_key() {
+        let file_name = "test_update_sort_key";
+        let file = File::create(file_name).unwrap();
+        let mut buffer_writer = BufWriter::new(&file);
+
+        let index = vec![
+            index_item_with_hash!(b"1a"),
+            index_item_with_hash!(b"2b"),
+            index_item_with_hash!(b"3c"),
+            index_item_with_hash!(b"4e"),
+        ];
+
+        write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
+
+        buffer_writer.flush().unwrap();
+
+        let file = File::options()
+            .write(true)
+            .read(true)
+            .open(file_name)
+            .unwrap();
+        let mut buffer_reader = BufReader::new(&file);
+        let mut buffer_writer = BufWriter::new(&file);
+
+        let sort_key = index_sort_key!(b"3c");
+        let new_sort_key = index_sort_key!(b"3d");
+
+        update_item_index(
+            &mut buffer_writer,
+            &mut buffer_reader,
+            &sort_key,
+            &new_sort_key,
+        )
+        .unwrap();
+
+        buffer_writer.flush().unwrap();
+
+        let file = File::open(file_name).unwrap();
+
+        let mut buffer_reader = BufReader::new(&file);
+
+        let index_read = {
+            let data = read_index_raw(&mut buffer_reader).unwrap();
+            data.iter()
+                .map(|item| String::from_utf8(item.clone()).unwrap())
+                .collect::<Vec<String>>()
+        };
+
+        let compare = {
+            let mut index = index.clone();
+            let hash = index.get(2).unwrap()[SORT_KEY_SIZE..INDEX_KEY_SIZE].to_vec();
+            index[2] = format!("3d{}", String::from_utf8(hash).unwrap())
+                .as_bytes()
+                .to_vec();
+            index
+                .iter()
+                .map(|item| String::from_utf8(item.clone()).unwrap())
+                .collect::<Vec<String>>()
+        };
+
+        assert_eq!(compare, index_read);
+
+        remove_file(file_name).unwrap();
+    }
+
+    #[test]
     fn test_remove_item_index() {
         let file_name = "test_remove_item_index";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
 
         let index = vec![
-            create_index_item!(b"1a"),
-            create_index_item!(b"2b"),
-            create_index_item!(b"3c"),
-            create_index_item!(b"4e"),
+            index_item_with_hash!(b"1a"),
+            index_item_with_hash!(b"2b"),
+            index_item_with_hash!(b"3c"),
+            index_item_with_hash!(b"4e"),
         ];
 
         write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
@@ -803,10 +910,10 @@ mod tests {
         let mut buffer_writer = BufWriter::new(&file);
 
         let index = vec![
-            create_index_item!(b"hello world"),
-            create_index_item!(b"hello dad"),
-            create_index_item!(b"friend hello"),
-            create_index_item!(b"code me"),
+            index_item_with_hash!(b"hello world"),
+            index_item_with_hash!(b"hello dad"),
+            index_item_with_hash!(b"friend hello"),
+            index_item_with_hash!(b"code me"),
         ];
 
         write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
@@ -874,12 +981,12 @@ mod tests {
         let mut buffer_writer = BufWriter::new(&file);
 
         let index = vec![
-            create_index_item!(b"2022-01-05 18:25:47"),
-            create_index_item!(b"2022-05-05 18:25:48"),
-            create_index_item!(b"2022-05-05 18:25:48"),
-            create_index_item!(b"2022-05-05 18:25:49"),
-            create_index_item!(b"2022-07-05 18:25:49"),
-            create_index_item!(b"2022-09-05 18:25:50"),
+            index_item_with_hash!(b"2022-01-05 18:25:47"),
+            index_item_with_hash!(b"2022-05-05 18:25:48"),
+            index_item_with_hash!(b"2022-05-05 18:25:48"),
+            index_item_with_hash!(b"2022-05-05 18:25:49"),
+            index_item_with_hash!(b"2022-07-05 18:25:49"),
+            index_item_with_hash!(b"2022-09-05 18:25:50"),
         ];
 
         write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
@@ -963,12 +1070,12 @@ mod tests {
         let mut buffer_writer = BufWriter::new(&file);
 
         let index = vec![
-            create_index_item!(b"alice"),
-            create_index_item!(b"bob"),
-            create_index_item!(b"carlos"),
-            create_index_item!(b"carol"),
-            create_index_item!(b"david"),
-            create_index_item!(b"edward"),
+            index_item_with_hash!(b"alice"),
+            index_item_with_hash!(b"bob"),
+            index_item_with_hash!(b"carlos"),
+            index_item_with_hash!(b"carol"),
+            index_item_with_hash!(b"david"),
+            index_item_with_hash!(b"edward"),
         ];
 
         write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
@@ -1040,12 +1147,12 @@ mod tests {
         let mut buffer_writer = BufWriter::new(&file);
 
         let index = vec![
-            create_index_item!(b"100"),
-            create_index_item!(b"200"),
-            create_index_item!(b"200.1"),
-            create_index_item!(b"300.2"),
-            create_index_item!(b"300.1"),
-            create_index_item!(b"300"),
+            index_item_with_hash!(b"100"),
+            index_item_with_hash!(b"200"),
+            index_item_with_hash!(b"200.1"),
+            index_item_with_hash!(b"300.2"),
+            index_item_with_hash!(b"300.1"),
+            index_item_with_hash!(b"300"),
         ];
 
         write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
@@ -1116,10 +1223,10 @@ mod tests {
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
 
-        let item1 = create_index_item_uuid!(b"aaaaa");
-        let item2 = create_index_item_uuid!(b"bbbbb");
-        let item3 = create_index_item_uuid!(b"ccccc");
-        let item4 = create_index_item_uuid!(b"ddddd");
+        let item1 = index_item_return_hash!(b"aaaaa");
+        let item2 = index_item_return_hash!(b"bbbbb");
+        let item3 = index_item_return_hash!(b"ccccc");
+        let item4 = index_item_return_hash!(b"ddddd");
 
         let index = vec![
             item1.0.clone(),
@@ -1215,10 +1322,10 @@ mod tests {
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
 
-        let item1 = create_index_item_uuid!(b"aaaaa");
-        let item2 = create_index_item_uuid!(b"bbbbb");
-        let item3 = create_index_item_uuid!(b"ccccc");
-        let item4 = create_index_item_uuid!(b"ddddd");
+        let item1 = index_item_return_hash!(b"aaaaa");
+        let item2 = index_item_return_hash!(b"bbbbb");
+        let item3 = index_item_return_hash!(b"ccccc");
+        let item4 = index_item_return_hash!(b"ddddd");
 
         let index = vec![
             item1.0.clone(),

@@ -63,7 +63,7 @@ macro_rules! index_sort_key {
 
 #[macro_export]
 macro_rules! index_item {
-    ($uuid:expr, $prop:expr) => {
+    ($prop:expr, $uuid:expr) => {
         {
             let mut item = vec![0; crate::INDEX_KEY_SIZE];
             item[..$prop.len()].copy_from_slice($prop);
@@ -74,22 +74,24 @@ macro_rules! index_item {
     };
 }
 
+
+
 #[macro_export]
-macro_rules! create_index_item {
-    ($prop:expr) => {
+macro_rules! index_item_with_hash {
+    ($sort_key:expr) => {
         {
             let uuid = crate::uuid!();
-            crate::index_item!(uuid, $prop)
+            crate::index_item!($sort_key, uuid)
         }
     };
 }
 
 #[macro_export]
-macro_rules! create_index_item_uuid {
-    ($prop:expr) => {
+macro_rules! index_item_return_hash {
+    ($sort_key:expr) => {
         {
             let uuid = crate::uuid!();
-            (crate::index_item!(uuid, $prop), uuid)
+            (crate::index_item!($sort_key, uuid), uuid)
         }
     };
 }
