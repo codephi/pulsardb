@@ -62,6 +62,19 @@ macro_rules! index_sort_key {
 
 
 #[macro_export]
+macro_rules! index_sort_key_u8 {
+    ($prop:expr) => {
+        {
+            let mut item = [u8::MIN; crate::SORT_KEY_SIZE];
+            item.as_mut_slice().copy_from_slice($prop);
+            item
+        }
+    };
+}
+
+
+
+#[macro_export]
 macro_rules! index_item {
     ($prop:expr, $uuid:expr) => {
         {

@@ -13,10 +13,7 @@ use std::io::Read;
 
 use byteorder::ReadBytesExt;
 
-use crate::{
-    DEFAULT_LIMIT_INDEX_READ, DEFAULT_ORDER_INDEX_READ, DEFAULT_SIZE_U32, Error, INDEX_KEY_SIZE,
-    index_sort_key, SORT_KEY_SIZE, th_msg, UUID_SIZE,
-};
+use crate::{DEFAULT_LIMIT_INDEX_READ, DEFAULT_ORDER_INDEX_READ, DEFAULT_SIZE_U32, Error, INDEX_KEY_SIZE, index_sort_key, index_sort_key_u8, SORT_KEY_SIZE, th_msg, UUID_SIZE};
 
 pub fn write_index_raw(
     buffer_writer: &mut BufWriter<&File>,
@@ -142,9 +139,11 @@ pub fn update_item_index(
     new_sort_key: &Vec<u8>,
 ) -> Result<(), Error> {
     th_msg!(
-        buffer_writer.seek(std::io::SeekFrom::Start(DEFAULT_SIZE_U32 as u64)),
+        buffer_reader.seek(std::io::SeekFrom::Start(DEFAULT_SIZE_U32 as u64)),
         Error::Io
     );
+
+    let sort_key = index_sort_key_u8!(sort_key);
 
     while let Some(buffer) = {
         let mut buffer = vec![0; INDEX_KEY_SIZE];
@@ -153,11 +152,11 @@ pub fn update_item_index(
             Err(err) => return Err(Error::Io(err)),
         }
     } {
-        let find_sort_key = buffer[..SORT_KEY_SIZE].to_vec();
+        let find_sort_key = &buffer[..SORT_KEY_SIZE];
 
-        if sort_key == &find_sort_key {
+        if sort_key == find_sort_key {
             let position =
-                (th_msg!(buffer_reader.stream_position(), Error::Io) - INDEX_KEY_SIZE as u64) + DEFAULT_SIZE_U32 as u64;
+                th_msg!(buffer_reader.stream_position(), Error::Io) - INDEX_KEY_SIZE as u64;
 
             th_msg!(
                 buffer_writer.seek(std::io::SeekFrom::Start(position)),
@@ -176,32 +175,18 @@ pub fn update_item_index(
     Ok(())
 }
 
-// TODO: precisa refatorar para melhorar o desempenho da remoção, talvez usar rayon
-// TODO: Isso é necessário pq a função esta varrendo todo o binario e jogano na memoria, caso o binario seja muito granda, vai dar ruim.
 pub fn remove_item_index(
     buffer_writer: &mut BufWriter<&File>,
     buffer_reader: &mut BufReader<&File>,
-    item: Vec<u8>,
+    sort_key: &Vec<u8>,
 ) -> Result<(), Error> {
     let total_size = th_msg!(
         buffer_reader.read_u32::<byteorder::LittleEndian>(),
         Error::Io
     ) as usize;
 
-    let mut index = Vec::with_capacity(total_size * INDEX_KEY_SIZE);
-
-    let mut target: Vec<u8> = vec![0; INDEX_KEY_SIZE];
-    target[..item.len()].copy_from_slice(&item);
-
-    for _ in 0..total_size {
-        let mut buffer = vec![0; INDEX_KEY_SIZE];
-        th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
-
-        if target == buffer {
-            continue;
-        }
-
-        index.append(&mut buffer);
+    if total_size == 0 {
+        return Ok(());
     }
 
     th_msg!(buffer_writer.seek(std::io::SeekFrom::Start(0)), Error::Io);
@@ -211,12 +196,53 @@ pub fn remove_item_index(
         Error::Io
     );
 
+    let mut position = 0;
+
+    let sort_key = index_sort_key_u8!(sort_key);
+    let mut index  = 0;
+
+    while let Some(buffer) = {
+        let mut buffer = vec![0; INDEX_KEY_SIZE];
+        match buffer_reader.read_exact(&mut buffer) {
+            Ok(_) => Some(buffer),
+            Err(err) => return Err(Error::Io(err)),
+        }
+    } {
+        let find_sort_key = &buffer[..SORT_KEY_SIZE];
+
+        if sort_key == find_sort_key {
+            match buffer_reader.stream_position() {
+                Ok(pos) => {
+                    println!("pos: {}", pos);
+                    position = pos;
+                },
+                Err(err) => return Err(Error::Io(err)),
+            }
+
+            break
+        }
+
+        index += 1;
+    }
+
+    if position == 0 {
+        return Ok(());
+    }
+
     th_msg!(
-        buffer_writer.seek(std::io::SeekFrom::Start(DEFAULT_SIZE_U32 as u64)),
+        buffer_writer.seek(std::io::SeekFrom::Start(position)),
         Error::Io
     );
 
-    th_msg!(buffer_writer.write_all(&index), Error::Io);
+    while let Some(buffer) = {
+        let mut buffer = vec![0; INDEX_KEY_SIZE];
+        match buffer_reader.read_exact(&mut buffer) {
+            Ok(_) => Some(buffer),
+            Err(err) => return Err(Error::Io(err)),
+        }
+    } {
+        th_msg!(buffer_writer.write_all(&buffer), Error::Io);
+    }
 
     Ok(())
 }
@@ -597,7 +623,7 @@ pub fn read_index_options(
 mod tests {
     use std::fs::remove_file;
 
-    use crate::{index_item_with_hash, index_sort_key, index_item_return_hash};
+    use crate::{index_item, index_item_return_hash, index_item_with_hash, index_sort_key};
 
     use super::*;
 
@@ -830,9 +856,7 @@ mod tests {
         let compare = {
             let mut index = index.clone();
             let hash = index.get(2).unwrap()[SORT_KEY_SIZE..INDEX_KEY_SIZE].to_vec();
-            index[2] = format!("3d{}", String::from_utf8(hash).unwrap())
-                .as_bytes()
-                .to_vec();
+            index[2] = index_item!(b"3d", hash);
             index
                 .iter()
                 .map(|item| String::from_utf8(item.clone()).unwrap())
@@ -845,8 +869,8 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_item_index() {
-        let file_name = "test_remove_item_index";
+    fn test_remove_sort_key(){
+        let file_name = "test_remove_sort_key";
         let file = File::create(file_name).unwrap();
         let mut buffer_writer = BufWriter::new(&file);
 
@@ -869,12 +893,9 @@ mod tests {
         let mut buffer_reader = BufReader::new(&file);
         let mut buffer_writer = BufWriter::new(&file);
 
-        remove_item_index(
-            &mut buffer_writer,
-            &mut buffer_reader,
-            index.get(1).unwrap().clone(),
-        )
-        .unwrap();
+        let sort_key = index_sort_key!(b"3c");
+
+        remove_item_index(&mut buffer_writer, &mut buffer_reader, &sort_key).unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -891,7 +912,7 @@ mod tests {
 
         let compare = {
             let mut index = index.clone();
-            index.remove(1);
+            index.remove(2);
             index
                 .iter()
                 .map(|item| String::from_utf8(item.clone()).unwrap())
