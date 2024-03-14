@@ -13,7 +13,10 @@ use std::io::Read;
 
 use byteorder::ReadBytesExt;
 
-use crate::{DEFAULT_LIMIT_INDEX_READ, DEFAULT_ORDER_INDEX_READ, DEFAULT_SIZE_U32, Error, INDEX_KEY_SIZE, SORT_KEY_SIZE, th_msg, UUID_SIZE};
+use crate::{
+    DEFAULT_LIMIT_INDEX_READ, DEFAULT_ORDER_INDEX_READ, DEFAULT_SIZE_U32, Error, INDEX_KEY_SIZE,
+    SORT_KEY_SIZE, th_msg, UUID_SIZE,
+};
 
 pub fn write_index_raw(
     buffer_writer: &mut BufWriter<&File>,
@@ -35,9 +38,7 @@ pub fn write_index_raw(
     Ok(())
 }
 
-pub fn read_index_raw(
-    buffer_reader: &mut BufReader<&File>,
-) -> Result<Vec<Vec<u8>>, Error> {
+pub fn read_index_raw(buffer_reader: &mut BufReader<&File>) -> Result<Vec<Vec<u8>>, Error> {
     let total_size = th_msg!(
         buffer_reader.read_u32::<byteorder::LittleEndian>(),
         Error::Io
@@ -74,17 +75,23 @@ pub fn add_item_index(
         Error::Io
     ) as usize;
 
+    th_msg!(buffer_writer.seek(std::io::SeekFrom::Start(0)), Error::Io);
+
+    th_msg!(
+        buffer_writer.write_all(&(total_size as u32 + 1).to_le_bytes()),
+        Error::Io
+    );
+
     let mut index = {
         let mut buffer: Vec<u8> = vec![0; INDEX_KEY_SIZE];
         buffer[..item.len()].copy_from_slice(&item);
 
-        let mut vec = Vec::with_capacity((total_size + 1) * INDEX_KEY_SIZE);
+        let mut vec = Vec::with_capacity(2 * INDEX_KEY_SIZE);
         vec.append(&mut buffer);
         vec
     };
 
-    let mut find: bool = false;
-    let mut position = total_size - 1;
+    let mut target_position = total_size;
 
     // TODO: no futuro, testar a performance com o rayon
     // talvez seja interessante paralelizar a busca caso tenha muitos itens
@@ -93,30 +100,37 @@ pub fn add_item_index(
         th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
 
         if item < buffer {
-            if !find {
-                position = pos;
-                find = true;
-            }
-
+            target_position = pos;
             index.append(&mut buffer);
+            break;
         }
     }
 
-    th_msg!(buffer_writer.seek(std::io::SeekFrom::Start(0)), Error::Io);
-
-    th_msg!(
-        buffer_writer.write_all(&(total_size as u32 + 1).to_le_bytes()),
-        Error::Io
-    );
+    let next_position = target_position + index.len() / INDEX_KEY_SIZE;
 
     th_msg!(
         buffer_writer.seek(std::io::SeekFrom::Start(
-            ((position * INDEX_KEY_SIZE) + DEFAULT_SIZE_U32) as u64
+            ((target_position * INDEX_KEY_SIZE) + DEFAULT_SIZE_U32) as u64
         )),
         Error::Io
     );
-
     th_msg!(buffer_writer.write_all(&index), Error::Io);
+
+    drop(index);
+
+    for pos in next_position..=total_size {
+        let mut buffer = vec![0; INDEX_KEY_SIZE];
+        th_msg!(buffer_reader.read_exact(&mut buffer), Error::Io);
+
+        th_msg!(
+            buffer_writer.seek(std::io::SeekFrom::Start(
+                ((pos * INDEX_KEY_SIZE) + DEFAULT_SIZE_U32) as u64
+            )),
+            Error::Io
+        );
+
+        th_msg!(buffer_writer.write_all(&buffer), Error::Io);
+    }
 
     Ok(())
 }
@@ -637,12 +651,7 @@ mod tests {
 
         let item: Vec<u8> = create_index_item!(b"2c");
 
-        add_item_index(
-            &mut buffer_writer,
-            &mut buffer_reader,
-            item.clone(),
-        )
-        .unwrap();
+        add_item_index(&mut buffer_writer, &mut buffer_reader, item.clone()).unwrap();
 
         buffer_writer.flush().unwrap();
 
@@ -661,6 +670,62 @@ mod tests {
             let mut index = index.clone();
             // Insert the item in the correct position
             index.insert(2, item);
+            index
+                .iter()
+                .map(|item| String::from_utf8(item.clone()).unwrap())
+                .collect::<Vec<String>>()
+        };
+
+        assert_eq!(compare, index_read);
+
+        remove_file(file_name).unwrap();
+    }
+
+    #[test]
+    fn test_add_item_index_last(){
+        let file_name = "test_add_item_index_last";
+        let file = File::create(file_name).unwrap();
+        let mut buffer_writer = BufWriter::new(&file);
+
+        let index = vec![
+            create_index_item!(b"1a"),
+            create_index_item!(b"2b"),
+            create_index_item!(b"3c"),
+            create_index_item!(b"4e"),
+        ];
+
+        write_index_ordered(&mut buffer_writer, index.clone()).unwrap();
+
+        buffer_writer.flush().unwrap();
+
+        let file = File::options()
+            .write(true)
+            .read(true)
+            .open(file_name)
+            .unwrap();
+        let mut buffer_reader = BufReader::new(&file);
+        let mut buffer_writer = BufWriter::new(&file);
+
+        let item: Vec<u8> = create_index_item!(b"5f");
+
+        add_item_index(&mut buffer_writer, &mut buffer_reader, item.clone()).unwrap();
+
+        buffer_writer.flush().unwrap();
+
+        let file = File::open(file_name).unwrap();
+
+        let mut buffer_reader = BufReader::new(&file);
+
+        let index_read = {
+            let data = read_index_raw(&mut buffer_reader).unwrap();
+            data.iter()
+                .map(|item| String::from_utf8(item.clone()).unwrap())
+                .collect::<Vec<String>>()
+        };
+
+        let compare = {
+            let mut index = index.clone();
+            index.push(item);
             index
                 .iter()
                 .map(|item| String::from_utf8(item.clone()).unwrap())
@@ -1095,19 +1160,22 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(vec![
-            IndexItem {
-                // this string need to be 100 bytes
-                item: index_sort_key!(b"ddddd"),
-                hash: item4.1,
-                position: 3
-            },
-            IndexItem {
-                item: index_sort_key!(b"ccccc"),
-                hash: item3.1,
-                position: 2
-            }
-        ], desc);
+        assert_eq!(
+            vec![
+                IndexItem {
+                    // this string need to be 100 bytes
+                    item: index_sort_key!(b"ddddd"),
+                    hash: item4.1,
+                    position: 3
+                },
+                IndexItem {
+                    item: index_sort_key!(b"ccccc"),
+                    hash: item3.1,
+                    position: 2
+                }
+            ],
+            desc
+        );
 
         buffer_reader.seek(std::io::SeekFrom::Start(0)).unwrap();
 
@@ -1122,18 +1190,21 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(vec![
-            IndexItem {
-                item: index_sort_key!(b"aaaaa"),
-                hash: item1.1,
-                position: 0
-            },
-            IndexItem {
-                item: index_sort_key!(b"bbbbb"),
-                hash: item2.1,
-                position: 1
-            },
-        ], asc);
+        assert_eq!(
+            vec![
+                IndexItem {
+                    item: index_sort_key!(b"aaaaa"),
+                    hash: item1.1,
+                    position: 0
+                },
+                IndexItem {
+                    item: index_sort_key!(b"bbbbb"),
+                    hash: item2.1,
+                    position: 1
+                },
+            ],
+            asc
+        );
 
         remove_file(file_name).unwrap();
     }
@@ -1188,18 +1259,21 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(vec![
-            IndexItem {
-                item: index_sort_key!(b"bbbbb"),
-                hash: item2.1,
-                position: 1
-            },
-            IndexItem {
-                item: index_sort_key!(b"aaaaa"),
-                hash: item1.1,
-                position: 0
-            }
-        ], desc);
+        assert_eq!(
+            vec![
+                IndexItem {
+                    item: index_sort_key!(b"bbbbb"),
+                    hash: item2.1,
+                    position: 1
+                },
+                IndexItem {
+                    item: index_sort_key!(b"aaaaa"),
+                    hash: item1.1,
+                    position: 0
+                }
+            ],
+            desc
+        );
 
         remove_file(file_name).unwrap();
     }
