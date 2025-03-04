@@ -1,15 +1,3 @@
 [workspace]
-members = [
-    "core",
-    "protocol",
-    "events",
-    "cache",
-    "storage",
-    "valu3/valu3",
-    "valu3/valu3_derive",
-    "valu3/valu3_parquet",
-    "sheet", 
-    "sheet_fs", 
-    "sdk",
-]
+members = ["protocol", "events", "cache", "sheet", "sheet_fs", "sdk"]
 resolver = "2"

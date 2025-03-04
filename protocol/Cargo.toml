@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.79"
-valu3 = { version = "0.3.6", git = "https://github.com/purp-lang/valu3" }
+valu3 = "0.7.2"
 regex = "1.10.2"
 hyper = { version = "1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
